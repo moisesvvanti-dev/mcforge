@@ -101,6 +101,13 @@ jobs:
             tar -xzf backups/data-saved.tar.gz -C daemon/data/
           fi
 
+          if [ -f "backups/playit-saved.tar.gz" ]; then
+            echo "🌐 Restaurando IP Permanente do Playit.gg..."
+            mkdir -p "$HOME/.config/playit"
+            tar -xzf backups/playit-saved.tar.gz -C "$HOME/.config/playit"
+            echo "✓ IP Permanente restaurado!"
+          fi
+
       - name: 🌐 Instalar Ferramentas de Conexão (Cloudflared & Playit.gg)
         run: |
           mkdir -p logs
@@ -219,12 +226,26 @@ EOF
             fi
           done
 
-      - name: 💾 Salvar Mundo e Dados (Auto-Backup)
+          # Renovação automática para manter 24/7 sem desligar
+          echo "🔄 Disparando próximo ciclo contínuo para manter 24/7 ativo..."
+          curl -s -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository }}/actions/workflows/minecraft-persistent.yml/dispatches \
+            -d '{"ref":"main"}' 2>/dev/null || true
+
+      - name: 💾 Salvar Mundo, Configurações e IP Fixo Playit
         if: always()
         run: |
-          echo "Salvando mundos e banco de dados..."
+          echo "Salvando mundos, configurações e IP permanente..."
           mkdir -p backups
           
+          # Salva configuração fixa do Playit para o IP nunca mudar
+          if [ -d "$HOME/.config/playit" ]; then
+            tar -czf backups/playit-saved.tar.gz -C "$HOME/.config/playit" . 2>/dev/null || true
+            echo "✓ IP Permanente do Playit preservado!"
+          fi
+
           if [ -d "daemon/servers" ]; then
             tar -czf backups/world-saved.tar.gz -C daemon/servers . 2>/dev/null || true
             echo "✓ Backup do mundo gerado com sucesso!"
@@ -240,6 +261,7 @@ EOF
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main 2>/dev/null || true
           git add -f backups/*.tar.gz 2>/dev/null || true
-          git commit -m "💾 [Auto-Save] Backup do mundo na nuvem [$(date -u +%Y-%m-%d\ %H:%M)]" 2>/dev/null || echo "Nada novo para commitar"
+          git commit -m "💾 [Auto-Save] Backup do mundo e IP fixo [$(date -u +%Y-%m-%d\ %H:%M)]" 2>/dev/null || echo "Nada novo para commitar"
           git push origin main 2>&1 || echo "Push pulado ou sem alterações."

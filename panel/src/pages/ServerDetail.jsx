@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { api, getBase, getMinecraftAddress } from '../lib/api'
+import { api, getBase, getMinecraftAddress, triggerGitHubWorkflow, getGitHubToken, autoDiscoverDaemonUrl } from '../lib/api'
 import { useApi } from '../hooks/useApi'
 import Spinner from '../components/Spinner'
 import StatusBadge from '../components/StatusBadge'
@@ -22,6 +22,8 @@ export default function ServerDetail({ ws }) {
   const [tab, setTab] = useState('console')
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [cloudBooting, setCloudBooting] = useState(false)
+  const [bootStatus, setBootStatus] = useState('')
 
   const { data, loading, error, execute, setData } = useApi(() => api.server(id), [id])
 
@@ -66,6 +68,63 @@ export default function ServerDetail({ ws }) {
         try {
           await api.startServer(id)
         } catch (startErr) {
+          const token = getGitHubToken()
+          if (token) {
+            setCloudBooting(true)
+            setBootStatus('🚀 Ligando máquina na nuvem e criando túnel permanente (~20s)...')
+            try {
+              await triggerGitHubWorkflow(token, {
+                version: localServer?.version || '1.8.9',
+                type: localServer?.type || 'paper',
+                ram: localServer?.maxRam || '4G'
+              })
+
+              let attempts = 0
+              const interval = setInterval(async () => {
+                attempts++
+                try {
+                  const url = await autoDiscoverDaemonUrl(true)
+                  if (url) {
+                    clearInterval(interval)
+                    setBootStatus('🟢 Conectado! Criando e iniciando seu servidor...')
+                    if (localServer) {
+                      const created = await api.createServer({
+                        name: localServer.name,
+                        type: localServer.type,
+                        version: localServer.version,
+                        port: localServer.port || 25565,
+                        minRam: localServer.minRam || '1G',
+                        maxRam: localServer.maxRam || '4G',
+                        gamemode: localServer.gamemode || 'survival',
+                        difficulty: localServer.difficulty || 'normal',
+                        autoStart: true
+                      })
+                      const existing = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+                      delete existing[id]
+                      localStorage.setItem('mcforge_local_servers', JSON.stringify(existing))
+                      if (created?.server?.id && created.server.id !== id) {
+                        window.location.hash = `#/servers/${created.server.id}`
+                      }
+                    }
+                    await execute()
+                    setCloudBooting(false)
+                    setBootStatus('')
+                  }
+                } catch { }
+
+                if (attempts > 50) {
+                  clearInterval(interval)
+                  setCloudBooting(false)
+                  setBootStatus('')
+                }
+              }, 3000)
+              return
+            } catch (triggerErr) {
+              setCloudBooting(false)
+              setBootStatus('')
+            }
+          }
+
           if (localServer) {
             const created = await api.createServer({
               name: localServer.name,
@@ -193,12 +252,21 @@ export default function ServerDetail({ ws }) {
               </button>
             </>
           ) : (
-            <button onClick={() => handleAction('start')} disabled={busy} className="btn-primary">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Iniciar Servidor
+            <button onClick={() => handleAction('start')} disabled={busy || cloudBooting} className="btn-primary">
+              {cloudBooting ? (
+                <div className="flex items-center gap-2">
+                  <Spinner size="sm" />
+                  <span>{bootStatus || 'Ligando nuvem e túnel...'}</span>
+                </div>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Iniciar Servidor</span>
+                </>
+              )}
             </button>
           )}
           <button onClick={() => setConfirmDelete(true)} className="btn-ghost !text-red-400 hover:!bg-red-500/10">
