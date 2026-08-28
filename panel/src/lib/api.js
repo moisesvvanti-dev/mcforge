@@ -70,13 +70,15 @@ export async function autoDiscoverDaemonUrl(force = false) {
       if (data && data.content) {
         const decoded = decodeURIComponent(escape(atob(data.content.replace(/\s/g, ''))))
         const json = JSON.parse(decoded)
-        if (json && json.minecraft) {
-          discoveredMinecraftIp = json.minecraft
-          localStorage.setItem('mcforge_minecraft_ip', json.minecraft)
+        const mcIp = json.direct_ip || json.minecraft || (json.runner_ip ? `${json.runner_ip}:25565` : '')
+        if (mcIp) {
+          discoveredMinecraftIp = mcIp
+          localStorage.setItem('mcforge_minecraft_ip', mcIp)
         }
         if (json && json.url && json.url.startsWith('https://')) {
           discoveredBaseUrl = normalizeUrl(json.url)
           localStorage.setItem(DAEMON_URL_KEY, discoveredBaseUrl)
+          window.dispatchEvent(new CustomEvent('daemon_url_changed', { detail: discoveredBaseUrl }))
           return discoveredBaseUrl
         }
       }
@@ -89,13 +91,15 @@ export async function autoDiscoverDaemonUrl(force = false) {
     const res = await fetch(rawUrl, { cache: 'no-store' })
     if (res.ok) {
       const data = await res.json()
-      if (data && data.minecraft) {
-        discoveredMinecraftIp = data.minecraft
-        localStorage.setItem('mcforge_minecraft_ip', data.minecraft)
+      const mcIp = data.direct_ip || data.minecraft || (data.runner_ip ? `${data.runner_ip}:25565` : '')
+      if (mcIp) {
+        discoveredMinecraftIp = mcIp
+        localStorage.setItem('mcforge_minecraft_ip', mcIp)
       }
       if (data && data.url && data.url.startsWith('https://')) {
         discoveredBaseUrl = normalizeUrl(data.url)
         localStorage.setItem(DAEMON_URL_KEY, discoveredBaseUrl)
+        window.dispatchEvent(new CustomEvent('daemon_url_changed', { detail: discoveredBaseUrl }))
         return discoveredBaseUrl
       }
     }

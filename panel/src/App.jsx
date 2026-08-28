@@ -1,7 +1,7 @@
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import Layout from './components/Layout'
-import { isAuthenticated } from './lib/api'
+import { isAuthenticated, autoDiscoverDaemonUrl } from './lib/api'
 import { useWebSocket } from './hooks/useWebSocket'
 
 import Login from './pages/Login'
@@ -23,6 +23,18 @@ function RequireAuth({ children }) {
 
 function AppShell() {
   const ws = useWebSocket()
+
+  useEffect(() => {
+    autoDiscoverDaemonUrl(true).then((url) => {
+      if (url && ws) ws.connect()
+    }).catch(() => {})
+
+    const interval = setInterval(() => {
+      autoDiscoverDaemonUrl(true).catch(() => {})
+    }, 12000)
+
+    return () => clearInterval(interval)
+  }, [ws])
 
   return (
     <Layout ws={ws}>

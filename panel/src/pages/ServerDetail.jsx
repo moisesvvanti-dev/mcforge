@@ -24,8 +24,18 @@ export default function ServerDetail({ ws }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [cloudBooting, setCloudBooting] = useState(false)
   const [bootStatus, setBootStatus] = useState('')
+  const [discoveredIp, setDiscoveredIp] = useState(getMinecraftAddress())
 
   const { data, loading, error, execute, setData } = useApi(() => api.server(id), [id])
+
+  // Descobrir a nuvem e conectar WebSocket automaticamente ao abrir qualquer servidor
+  useEffect(() => {
+    autoDiscoverDaemonUrl(true).then((url) => {
+      setDiscoveredIp(getMinecraftAddress())
+      execute().catch(() => {})
+      if (url && ws) ws.connect()
+    }).catch(() => {})
+  }, [id, ws, execute])
 
   // Atualizar via WebSocket
   useEffect(() => {
@@ -173,13 +183,8 @@ export default function ServerDetail({ ws }) {
 
   const isRunning = server.status === 'running'
 
-  const mcPublic = getMinecraftAddress()
-  let serverAddress = mcPublic || `localhost:${server.port}`
-  if (server.publicAddress) {
-    serverAddress = server.publicAddress
-  } else if (server.playitAddress) {
-    serverAddress = server.playitAddress
-  }
+  const mcPublic = discoveredIp || getMinecraftAddress()
+  let serverAddress = mcPublic || server.publicAddress || server.playitAddress || `IP da Nuvem (~conectando...)`
 
   return (
     <div className="space-y-6 animate-fade-in">
