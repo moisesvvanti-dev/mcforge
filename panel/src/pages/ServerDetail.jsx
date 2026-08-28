@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { api, getBase } from '../lib/api'
+import { api, getBase, getMinecraftAddress } from '../lib/api'
 import { useApi } from '../hooks/useApi'
 import Spinner from '../components/Spinner'
 import StatusBadge from '../components/StatusBadge'
@@ -82,23 +82,45 @@ export default function ServerDetail({ ws }) {
 
   const isRunning = server.status === 'running'
 
-  const base = getBase()
-  let serverAddress = `localhost:${server.port}`
+  const mcPublic = getMinecraftAddress()
+  let serverAddress = mcPublic || `localhost:${server.port}`
   if (server.publicAddress) {
     serverAddress = server.publicAddress
   } else if (server.playitAddress) {
     serverAddress = server.playitAddress
-  } else if (base) {
-    try {
-      const hostname = new URL(base).hostname
-      if (hostname && !hostname.includes('localhost') && !hostname.includes('127.0.0.1')) {
-        serverAddress = hostname
-      }
-    } catch { }
   }
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Banner com Endereço Direto para o Jogo */}
+      <div className="bg-gradient-to-r from-emerald-950/70 via-gray-900 to-gray-900 border border-emerald-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
+            </svg>
+          </div>
+          <div>
+            <div className="text-xs text-gray-400">Endereço de Conexão no Minecraft (Copiar e Colar no Jogo):</div>
+            <div className="text-sm sm:text-base font-mono font-bold text-emerald-300 select-all mt-0.5">
+              {serverAddress}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => {
+            copyToClipboard(serverAddress)
+            alert('Endereço copiado! Cole na Conexão Direta do Minecraft.')
+          }}
+          className="btn-primary !py-2 !px-4 text-xs font-bold shrink-0 w-full sm:w-auto flex items-center justify-center gap-1.5 shadow-lg shadow-green-900/30"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          </svg>
+          Copiar IP do Jogo
+        </button>
+      </div>
+
       {/* Cabeçalho */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">

@@ -143,39 +143,59 @@ jobs:
           echo $! > playit.pid
 
           # Aguarda túneis conectarem
-          sleep 12
+          sleep 15
 
           PANEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/panel-tunnel.log | head -1)
+          
+          # Extrai endereço do Playit para o Minecraft
+          PLAYIT_ADDR=$(grep -oP '[a-zA-Z0-9-]+\.(gl\.joinmc\.link|craft\.playit\.gg:\d+|playit\.gg)' logs/playit.log | head -1)
+          PLAYIT_CLAIM=$(grep -oP 'https://playit\.gg/claim/[a-zA-Z0-9]+' logs/playit.log | head -1)
+          
+          MINECRAFT_IP="${PLAYIT_ADDR:-$PLAYIT_CLAIM}"
+          if [ -z "$MINECRAFT_IP" ]; then
+            MINECRAFT_IP="playit.gg"
+          fi
 
           echo "PANEL_URL=$PANEL_URL" >> $GITHUB_ENV
+          echo "MINECRAFT_IP=$MINECRAFT_IP" >> $GITHUB_ENV
 
-          # Salva tunnel.json para o GitHub Pages conectar via HTTPS automaticamente
-          echo "{\"url\": \"$PANEL_URL\", \"online\": true, \"updatedAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > tunnel.json
+          # Salva tunnel.json para o GitHub Pages e Painel conectarem
+          cat <<EOF > tunnel.json
+{
+  "url": "$PANEL_URL",
+  "minecraft": "$MINECRAFT_IP",
+  "online": true,
+  "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add tunnel.json 2>/dev/null || true
-          git commit -m "🌐 Atualizar link do tunnel HTTPS [skip ci]" 2>/dev/null || echo "tunnel.json inalterado"
+          git commit -m "🌐 Atualizar link do tunnel HTTPS e Minecraft IP [skip ci]" 2>/dev/null || echo "tunnel.json inalterado"
           git push origin main 2>&1 || echo "Push de tunnel.json pulado"
 
           # Exibir no Step Summary do GitHub Actions
           echo "## 🎮 MCForge na Nuvem GitHub Está Online!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> ☁️ **Servidor Rodando nos Servidores do GitHub (Azure Cloud)** — Seu IP e seu PC não são utilizados." >> $GITHUB_STEP_SUMMARY
+          echo "> ☁️ **Servidor Rodando nos Servidores do GitHub (Azure Cloud)**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🌐 1. Link do Painel Web (Gerenciamento):" >> $GITHUB_STEP_SUMMARY
           echo "[👉 Clique Aqui para Abrir o Painel Web: **$PANEL_URL**]($PANEL_URL)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Link Direto:** \`$PANEL_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 🕹️ 2. Endereço para Colar no Minecraft (Jogadores):" >> $GITHUB_STEP_SUMMARY
+          echo "\`$MINECRAFT_IP\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🕹️ 2. Como os Jogadores Entram no Minecraft:" >> $GITHUB_STEP_SUMMARY
-          echo "- Abra o painel no link acima para ver seus servidores, ligar/desligar e pegar o IP de conexão dos jogadores." >> $GITHUB_STEP_SUMMARY
-          echo "- Seus amigos conectam pelo endereço público gerado pelo túnel na nuvem." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$PLAYIT_CLAIM" ]; then
+            echo "> ⚠️ **Primeira vez usando Playit?** Clique no link para vincular sua conta gratuita e fixar seu IP: [$PLAYIT_CLAIM]($PLAYIT_CLAIM)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "---" >> $GITHUB_STEP_SUMMARY
 
           echo "================================================================="
           echo "🎉 SERVIDOR E PAINEL ONLINE NA NUVEM DO GITHUB:"
           echo "👉 Painel Web: $PANEL_URL"
+          echo "👉 IP Minecraft: $MINECRAFT_IP"
           echo "================================================================="
 
       - name: ⏳ Manter Servidor Ativo na Nuvem (Loop com Heartbeat)

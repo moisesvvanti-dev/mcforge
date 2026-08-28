@@ -8,6 +8,7 @@ const DAEMON_URL_KEY = 'mcforge_daemon_url'
 
 // Cache em memória do túnel descoberto
 let discoveredBaseUrl = null
+let discoveredMinecraftIp = ''
 
 // Detecta se estamos rodando no GitHub Pages / Netlify / Vercel
 export function isHostedStaticPage() {
@@ -52,6 +53,10 @@ export async function autoDiscoverDaemonUrl() {
     const res = await fetch(rawUrl, { cache: 'no-store' })
     if (res.ok) {
       const data = await res.json()
+      if (data && data.minecraft) {
+        discoveredMinecraftIp = data.minecraft
+        localStorage.setItem('mcforge_minecraft_ip', data.minecraft)
+      }
       if (data && data.url && data.url.startsWith('https://')) {
         discoveredBaseUrl = normalizeUrl(data.url)
         localStorage.setItem(DAEMON_URL_KEY, discoveredBaseUrl)
@@ -68,6 +73,10 @@ export async function autoDiscoverDaemonUrl() {
   }
 
   return ''
+}
+
+export function getMinecraftAddress() {
+  return discoveredMinecraftIp || localStorage.getItem('mcforge_minecraft_ip') || ''
 }
 
 export function getBase() {
