@@ -10,7 +10,6 @@ export function useApi(fn, deps = [], { auto = true, initial = null } = {}) {
   fnRef.current = fn
 
   const execute = useCallback(async (...args) => {
-    setLoading(true)
     setError(null)
     try {
       const result = await fnRef.current(...args)
