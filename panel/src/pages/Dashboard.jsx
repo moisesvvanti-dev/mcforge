@@ -113,8 +113,24 @@ export default function Dashboard({ ws }) {
   }, [ws, execute])
 
   const isOffline = !!error || !dash
-  const servers = Object.values(dash?.servers || {})
+  const localServers = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+  const allServersMap = { ...localServers, ...(dash?.servers || {}) }
+  const servers = Object.values(allServersMap)
   const runningServers = servers.filter(s => s.status === 'running')
+  const totalCount = servers.length
+  const runningCount = runningServers.length
+  const totalPlayers = servers.reduce((acc, s) => acc + (s.playerCount || 0), 0)
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Tem certeza que deseja deletar este servidor?')) return
+    try {
+      await api.deleteServer(id)
+    } catch { }
+    const existing = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+    delete existing[id]
+    localStorage.setItem('mcforge_local_servers', JSON.stringify(existing))
+    execute().catch(() => {})
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -133,14 +149,12 @@ export default function Dashboard({ ws }) {
         </Link>
       </div>
 
-
-
       {/* Cards de estatísticas */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="card p-5">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-3xl font-black text-white">{dash?.counts?.total || 0}</div>
+              <div className="text-3xl font-black text-white">{totalCount}</div>
               <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">Servidores</div>
             </div>
             <div className="w-10 h-10 rounded-lg bg-gray-800 flex items-center justify-center">
@@ -154,7 +168,7 @@ export default function Dashboard({ ws }) {
         <div className="card p-5">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-3xl font-black text-green-400">{dash?.counts?.running || 0}</div>
+              <div className="text-3xl font-black text-green-400">{runningCount}</div>
               <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">Online</div>
             </div>
             <div className="w-10 h-10 rounded-lg bg-green-600/15 flex items-center justify-center">
@@ -169,7 +183,7 @@ export default function Dashboard({ ws }) {
         <div className="card p-5">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-3xl font-black text-cyan-400">{dash?.counts?.players || 0}</div>
+              <div className="text-3xl font-black text-cyan-400">{totalPlayers}</div>
               <div className="text-xs text-gray-500 uppercase tracking-wider mt-1">Jogadores</div>
             </div>
             <div className="w-10 h-10 rounded-lg bg-cyan-600/15 flex items-center justify-center">
@@ -222,6 +236,7 @@ export default function Dashboard({ ws }) {
                   onStart={(id) => handleAction(id, 'start')}
                   onStop={(id) => handleAction(id, 'stop')}
                   onRestart={(id) => handleAction(id, 'restart')}
+                  onDelete={(id) => handleDelete(id)}
                 />
               ))}
             </div>
