@@ -46,11 +46,13 @@ jobs:
         run: |
           mkdir -p server
           echo "Baixando Paper ${{ inputs.version }}..."
-          VERSIONS=$(curl -s "https://api.papermc.io/v2/projects/paper/versions/${{ inputs.version }}/builds")
-          BUILD=$(echo "$VERSIONS" | jq -r '.builds[-1].build')
-          JAR=$(echo "$VERSIONS" | jq -r '.builds[-1].downloads.application.name')
-          curl -o "server/paper.jar" "https://api.papermc.io/v2/projects/paper/versions/${{ inputs.version }}/builds/$BUILD/downloads/$JAR"
-          echo "Paper baixado: build $BUILD"
+          # API v3 da PaperMC
+          BUILDS=$(curl -s "https://fill.papermc.io/v3/projects/paper/versions/${{ inputs.version }}/builds")
+          BUILD=$(echo "$BUILDS" | jq -r '.[-1].build')
+          URL=$(echo "$BUILDS" | jq -r '.[-1].downloads["server:default"].url')
+          NAME=$(echo "$BUILDS" | jq -r '.[-1].downloads["server:default"].name')
+          curl -o "server/$NAME" "$URL"
+          echo "Paper baixado: $NAME (build $BUILD)"
 
       - name: Baixar servidor (Vanilla)
         if: inputs.type == 'vanilla'
