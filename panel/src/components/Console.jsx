@@ -17,14 +17,17 @@ export default function Console({ serverId, ws, initialLogs = [] }) {
     }
   }, [localLogs.length])
 
-  // Receber logs via WebSocket (novos logs)
+  // Receber logs via WebSocket (novos logs em tempo real)
   useEffect(() => {
+    if (!ws) return
     const handler = (msg) => {
-      if (msg.serverId === serverId) {
+      const msgServerId = msg.serverId || msg.id
+      if (!serverId || msgServerId === serverId) {
+        const text = msg.line || msg.text || ''
         setLocalLogs(prev => [...prev.slice(-400), {
-          time: msg.time,
-          text: msg.text,
-          command: msg.command
+          time: msg.time || new Date().toISOString(),
+          text,
+          command: !!msg.command
         }])
       }
     }
@@ -32,38 +35,69 @@ export default function Console({ serverId, ws, initialLogs = [] }) {
     return () => ws.off('log')
   }, [serverId, ws])
 
-  // Fallback: quando o WebSocket está offline (ex: painel no Netlify via proxy),
-  // busca os logs por polling a cada 3 segundos
+  // Sincronizar logs iniciais da API
   useEffect(() => {
-    if (ws.connected) return
+    if (initialLogs && initialLogs.length) {
+      setLocalLogs(initialLogs.map(l => ({
+        time: l.time || new Date().toISOString(),
+        text: l.line || l.text || l,
+        command: !!l.command
+      })))
+    }
+  }, [initialLogs, serverId])
+
+  // Fallback: busca logs por polling a cada 2 segundos se o WS estiver reconectando
+  useEffect(() => {
+    if (ws?.connected) return
     const poll = async () => {
       try {
         const res = await api.logs(serverId, 100)
-        const fetched = (res.logs || []).map(l => ({
-          time: l.time, text: l.text, command: l.command || false
-        }))
-        setLocalLogs(prev => {
-          if (fetched.length === prev.length) return prev
-          return fetched.slice(-400)
-        })
-      } catch { /* daemon inacessível — aguarda */ }
+        if (res && res.logs) {
+          const fetched = res.logs.map(l => ({
+            time: l.time,
+            text: l.line || l.text || l,
+            command: l.command || false
+          }))
+          setLocalLogs(prev => {
+            if (fetched.length === prev.length && fetched[fetched.length - 1]?.text === prev[prev.length - 1]?.text) {
+              return prev
+            }
+            return fetched.slice(-400)
+          })
+        }
+      } catch { }
     }
     poll()
-    const timer = setInterval(poll, 3000)
+    const timer = setInterval(poll, 2500)
     return () => clearInterval(timer)
-  }, [serverId, ws.connected])
+  }, [serverId, ws?.connected])
 
-  // Carregar logs iniciais quando o servidor muda
-  useEffect(() => {
-    setLocalLogs(initialLogs || [])
-  }, [serverId]) // eslint-disable-line
-
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return
-    historyRef.current.push(input)
+    const cmd = input.trim()
+    historyRef.current.push(cmd)
     historyIdxRef.current = -1
-    ws.sendCommand(serverId, input.trim())
     setInput('')
+
+    // Adiciona o comando visualmente de forma instantânea
+    setLocalLogs(prev => [...prev.slice(-400), {
+      time: new Date().toISOString(),
+      text: cmd,
+      command: true
+    }])
+
+    const sent = ws?.sendCommand ? ws.sendCommand(serverId, cmd) : false
+    if (!sent) {
+      try {
+        await api.command(serverId, cmd)
+      } catch (err) {
+        setLocalLogs(prev => [...prev.slice(-400), {
+          time: new Date().toISOString(),
+          text: `[Erro ao enviar comando]: ${err.message}`,
+          command: false
+        }])
+      }
+    }
   }
 
   const handleKeyDown = (e) => {

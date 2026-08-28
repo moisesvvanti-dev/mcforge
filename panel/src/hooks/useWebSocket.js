@@ -40,53 +40,73 @@ export function useWebSocket(serverId = null) {
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
+          if (!msg || !msg.type) return
 
           switch (msg.type) {
             case 'init':
               setServers(msg.servers || {})
+              if (handlersRef.current['init']) handlersRef.current['init'](msg)
               break
 
-            case 'log':
-              logsRef.current = [...logsRef.current.slice(-200), {
+            case 'logs': {
+              const serverLogs = (msg.logs || []).map(l => ({
+                time: l.time || new Date().toISOString(),
+                text: l.line || l.text || l,
+                line: l.line || l.text || l,
+                command: !!l.command,
+                serverId: msg.id || msg.serverId
+              }))
+              logsRef.current = [...logsRef.current.filter(l => l.serverId !== (msg.id || msg.serverId)), ...serverLogs].slice(-400)
+              setLogs(logsRef.current)
+              if (handlersRef.current['logs']) handlersRef.current['logs'](msg)
+              break
+            }
+
+            case 'log': {
+              const logEntry = {
                 time: msg.time || new Date().toISOString(),
-                text: msg.line,
+                text: msg.line || msg.text,
+                line: msg.line || msg.text,
                 command: msg.command || false,
-                serverId: msg.id
-              }]
+                serverId: msg.id || msg.serverId
+              }
+              logsRef.current = [...logsRef.current.slice(-400), logEntry]
               setLogs(logsRef.current)
 
-              // Notificar handlers
+              // Notificar handlers (suporta tanto 'log' quanto 'onLog')
+              if (handlersRef.current['log']) {
+                handlersRef.current['log'](logEntry)
+              }
               if (handlersRef.current.onLog) {
-                handlersRef.current.onLog(msg)
+                handlersRef.current.onLog(logEntry)
               }
               break
+            }
 
             case 'status':
               setServers(prev => ({
                 ...prev,
                 [msg.id]: { ...prev[msg.id], status: msg.status }
               }))
-              if (handlersRef.current.onStatus) {
-                handlersRef.current.onStatus(msg)
-              }
+              if (handlersRef.current['status']) handlersRef.current['status'](msg)
+              if (handlersRef.current.onStatus) handlersRef.current.onStatus(msg)
               break
 
             case 'player':
               setPlayerEvents(prev => [{ ...msg, time: Date.now() }, ...prev].slice(0, 50))
-              if (handlersRef.current.onPlayer) {
-                handlersRef.current.onPlayer(msg)
-              }
+              if (handlersRef.current['player']) handlersRef.current['player'](msg)
+              if (handlersRef.current.onPlayer) handlersRef.current.onPlayer(msg)
               break
 
             case 'stats':
               setStats(prev => ({ ...prev, [msg.id]: { memory: msg.memory, cpu: msg.cpu } }))
-              if (handlersRef.current.onStats) {
-                handlersRef.current.onStats(msg)
-              }
+              if (handlersRef.current['stats']) handlersRef.current['stats'](msg)
+              if (handlersRef.current.onStats) handlersRef.current.onStats(msg)
               break
 
             case 'error':
               console.error('WS error:', msg.message)
+              if (handlersRef.current['error']) handlersRef.current['error'](msg)
               break
           }
         } catch (e) {
