@@ -150,6 +150,7 @@ export async function triggerGitHubWorkflow(customToken, inputs = {}) {
 
   for (const wf of workflowCandidates) {
     try {
+      // 1. Tenta com os inputs especificados
       const res = await fetch(`https://api.github.com/repos/${user}/${repo}/actions/workflows/${wf}/dispatches`, {
         method: 'POST',
         headers: {
@@ -161,7 +162,8 @@ export async function triggerGitHubWorkflow(customToken, inputs = {}) {
           ref: 'main',
           inputs: {
             version: inputs.version || '1.8.9',
-            server_type: inputs.type || 'paper',
+            type: inputs.type || inputs.server_type || 'paper',
+            server_type: inputs.type || inputs.server_type || 'paper',
             ram: inputs.maxRam || inputs.ram || '4G'
           }
         })
@@ -173,6 +175,26 @@ export async function triggerGitHubWorkflow(customToken, inputs = {}) {
 
       const data = await res.json().catch(() => ({}))
       lastError = data.message || `Erro ${res.status}`
+
+      // 2. Se falhar por "Unexpected inputs", tenta sem inputs (usa os defaults do workflow)
+      if (lastError && lastError.includes('Unexpected inputs')) {
+        const fallbackRes = await fetch(`https://api.github.com/repos/${user}/${repo}/actions/workflows/${wf}/dispatches`, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${token.trim()}`,
+            'X-GitHub-Api-Version': '2022-11-28'
+          },
+          body: JSON.stringify({ ref: 'main' })
+        })
+
+        if (fallbackRes.ok || fallbackRes.status === 204) {
+          return true
+        }
+
+        const fallbackData = await fallbackRes.json().catch(() => ({}))
+        lastError = fallbackData.message || lastError
+      }
     } catch (e) {
       lastError = e.message
     }
