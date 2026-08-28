@@ -108,13 +108,9 @@ jobs:
             echo "✓ IP Permanente restaurado!"
           fi
 
-      - name: 🌐 Instalar Ferramentas de Conexão (Cloudflared & Playit.gg)
+      - name: 🌐 Instalar Ferramentas de Conexão (Playit.gg & Ferramentas Nativas)
         run: |
           mkdir -p logs
-          # Instalar Cloudflared para o Painel Web
-          curl -sL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          chmod +x cloudflared
-          sudo mv cloudflared /usr/local/bin/cloudflared
 
           # Instalar Playit.gg para o IP Público do Minecraft (TCP)
           curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/playit.gpg >/dev/null
@@ -141,18 +137,24 @@ jobs:
         run: |
           mkdir -p logs
           
-          # Inicia tunnel para o Painel Web (porta 3000)
-          cloudflared tunnel --url http://localhost:3000 --no-autoupdate > logs/panel-tunnel.log 2>&1 &
+          # Inicia túnel seguro sem Cloudflare (Pinggy / SSH direto) para o Painel Web (porta 3000)
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -p 443 -R0:localhost:3000 a.pinggy.io > logs/panel-tunnel.log 2>&1 &
           echo $! > panel-tunnel.pid
 
           # Inicia playit em segundo plano para o IP de conexão do jogo
           playit --secret "${{ secrets.PLAYIT_SECRET }}" > logs/playit.log 2>&1 &
           echo $! > playit.pid
 
-          # Aguarda túneis conectarem
-          sleep 15
+          # Aguarda conexões
+          sleep 12
 
-          PANEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/panel-tunnel.log | head -1)
+          PANEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.a\.pinggy\.link|https://[a-zA-Z0-9-]+\.pinggy\.link' logs/panel-tunnel.log | head -1)
+          if [ -z "$PANEL_URL" ]; then
+            # Fallback para localtunnel se pinggy demorar
+            npx -y localtunnel --port 3000 > logs/localtunnel.log 2>&1 &
+            sleep 6
+            PANEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.loca\.lt' logs/localtunnel.log | head -1)
+          fi
           
           # Extrai endereço do Playit para o Minecraft
           PLAYIT_ADDR=$(grep -oP '[a-zA-Z0-9-]+\.(gl\.joinmc\.link|craft\.playit\.gg:\d+|playit\.gg)' logs/playit.log | head -1)
