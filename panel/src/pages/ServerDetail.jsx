@@ -43,7 +43,21 @@ export default function ServerDetail({ ws }) {
     }
   }, [ws, id, execute])
 
-  const server = data?.server
+  const localServers = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+  const localServer = localServers[id]
+  const server = data?.server || localServer || {
+    id,
+    name: 'Servidor Minecraft',
+    type: 'paper',
+    version: '1.8.9',
+    port: 25565,
+    status: 'stopped',
+    playerCount: 0,
+    maxPlayers: 20,
+    uptime: 'Offline',
+    gamemode: 'survival',
+    difficulty: 'normal'
+  }
 
   const handleAction = async (action) => {
     setBusy(true)
@@ -62,22 +76,13 @@ export default function ServerDetail({ ws }) {
   const handleDelete = async () => {
     try {
       await api.deleteServer(id)
+      const existing = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+      delete existing[id]
+      localStorage.setItem('mcforge_local_servers', JSON.stringify(existing))
       window.location.hash = '#/servers'
     } catch (e) {
       alert(e.message)
     }
-  }
-
-  if (loading && !server) {
-    return <div className="flex justify-center py-24"><Spinner size="lg" /></div>
-  }
-  if (error && !server) {
-    return (
-      <div className="card p-8 text-center">
-        <p className="text-red-400">{error}</p>
-        <Link to="/servers" className="btn-secondary mt-4 inline-flex">← Voltar</Link>
-      </div>
-    )
   }
 
   const isRunning = server.status === 'running'

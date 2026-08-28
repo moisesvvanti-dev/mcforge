@@ -269,6 +269,9 @@ async function request(path, options = {}) {
   try {
     res = await fetch(url, { ...options, headers })
   } catch (err) {
+    discoveredBaseUrl = null
+    localStorage.removeItem(DAEMON_URL_KEY)
+
     // Se o túnel antigo expirou (Failed to fetch), força a busca do novo túnel ativo no GitHub
     if (isHostedStaticPage()) {
       const freshBase = await autoDiscoverDaemonUrl(true)
