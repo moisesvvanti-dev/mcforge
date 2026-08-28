@@ -54,9 +54,37 @@ export async function autoDiscoverDaemonUrl(force = false) {
     return ''
   }
 
-  // Busca sempre o arquivo tunnel.json mais recente do GitHub Actions
+  const { user, repo } = getGitHubRepoInfo()
+  const token = getGitHubToken()
+
+  // 1. Tenta buscar via GitHub API Contents (Instantâneo, sem cache de CDN)
   try {
-    const { user, repo } = getGitHubRepoInfo()
+    const apiRes = await fetch(`https://api.github.com/repos/${user}/${repo}/contents/tunnel.json?ref=main&t=${Date.now()}`, {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        ...(token ? { 'Authorization': `Bearer ${token.trim()}` } : {})
+      }
+    })
+    if (apiRes.ok) {
+      const data = await apiRes.json()
+      if (data && data.content) {
+        const decoded = decodeURIComponent(escape(atob(data.content.replace(/\s/g, ''))))
+        const json = JSON.parse(decoded)
+        if (json && json.minecraft) {
+          discoveredMinecraftIp = json.minecraft
+          localStorage.setItem('mcforge_minecraft_ip', json.minecraft)
+        }
+        if (json && json.url && json.url.startsWith('https://')) {
+          discoveredBaseUrl = normalizeUrl(json.url)
+          localStorage.setItem(DAEMON_URL_KEY, discoveredBaseUrl)
+          return discoveredBaseUrl
+        }
+      }
+    }
+  } catch { }
+
+  // 2. Fallback: Busca via raw.githubusercontent.com
+  try {
     const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/main/tunnel.json?t=${Date.now()}`
     const res = await fetch(rawUrl, { cache: 'no-store' })
     if (res.ok) {
@@ -79,7 +107,7 @@ export async function autoDiscoverDaemonUrl(force = false) {
     return ''
   }
 
-  // Tenta recuperar do localStorage se for HTTPS válido
+  // 3. Tenta recuperar do localStorage se for HTTPS válido
   const saved = localStorage.getItem(DAEMON_URL_KEY)
   if (saved && saved.startsWith('https://')) {
     discoveredBaseUrl = normalizeUrl(saved)
