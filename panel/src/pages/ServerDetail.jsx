@@ -62,7 +62,34 @@ export default function ServerDetail({ ws }) {
   const handleAction = async (action) => {
     setBusy(true)
     try {
-      if (action === 'start') await api.startServer(id)
+      if (action === 'start') {
+        try {
+          await api.startServer(id)
+        } catch (startErr) {
+          if (localServer) {
+            const created = await api.createServer({
+              name: localServer.name,
+              type: localServer.type,
+              version: localServer.version,
+              port: localServer.port || 25565,
+              minRam: localServer.minRam || '1G',
+              maxRam: localServer.maxRam || '4G',
+              gamemode: localServer.gamemode || 'survival',
+              difficulty: localServer.difficulty || 'normal',
+              autoStart: true
+            })
+            const existing = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+            delete existing[id]
+            localStorage.setItem('mcforge_local_servers', JSON.stringify(existing))
+            if (created?.server?.id && created.server.id !== id) {
+              window.location.hash = `#/servers/${created.server.id}`
+              return
+            }
+          } else {
+            throw startErr
+          }
+        }
+      }
       if (action === 'stop') await api.stopServer(id)
       if (action === 'restart') await api.restartServer(id)
       setTimeout(() => execute().catch(() => {}), 600)

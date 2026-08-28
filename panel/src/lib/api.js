@@ -121,6 +121,32 @@ export function getMinecraftAddress() {
   return discoveredMinecraftIp || localStorage.getItem('mcforge_minecraft_ip') || ''
 }
 
+// Sincroniza servidores criados offline/localmente com o Daemon na nuvem
+export async function syncLocalServers() {
+  try {
+    const local = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+    const keys = Object.keys(local)
+    if (keys.length === 0) return
+    for (const k of keys) {
+      const s = local[k]
+      try {
+        await api.createServer({
+          name: s.name,
+          type: s.type,
+          version: s.version,
+          port: s.port || 25565,
+          minRam: s.minRam || '1G',
+          maxRam: s.maxRam || '4G',
+          gamemode: s.gamemode || 'survival',
+          difficulty: s.difficulty || 'normal'
+        })
+        delete local[k]
+      } catch { }
+    }
+    localStorage.setItem('mcforge_local_servers', JSON.stringify(local))
+  } catch { }
+}
+
 export function getBase() {
   if (discoveredBaseUrl !== null) return discoveredBaseUrl
   return localStorage.getItem(DAEMON_URL_KEY) || ''
