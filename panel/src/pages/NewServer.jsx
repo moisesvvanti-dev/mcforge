@@ -24,7 +24,7 @@ export default function NewServer() {
   const [form, setForm] = useState({
     name: '',
     type: 'paper',
-    version: 'latest',
+    version: '1.20.1',
     port: 25565,
     minRam: '1G',
     maxRam: '2G',
@@ -157,7 +157,6 @@ export default function NewServer() {
                 onChange={e => update('version', e.target.value)}
                 className="input font-mono font-medium"
               >
-                <option value="latest">⭐ Mais Recente (latest)</option>
                 <optgroup label="Minecraft 1.21 (Tricky Trials)">
                   <option value="1.21.4">1.21.4</option>
                   <option value="1.21.3">1.21.3</option>
