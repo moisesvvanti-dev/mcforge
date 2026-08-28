@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, setToken, setDaemonUrl as persistDaemonUrl } from '../lib/api'
+import { api, setToken, setDaemonUrl as persistDaemonUrl, getBase } from '../lib/api'
 import Spinner from '../components/Spinner'
 
 // Detecta se o painel está rodando no mesmo lugar do daemon (localhost)
@@ -73,10 +73,28 @@ export default function Login() {
       }
       navigate('/')
     } catch (err) {
-      setError(err.message || 'Falha no login')
-      // Se o erro parece de conexão, mostra dica
-      if (/fetch|network|502|404|Failed to fetch|inacess|Erro \d+/i.test(err.message)) {
-        setError(`${err.message} — Confira a URL do daemon abaixo e use "Testar conexão".`)
+      const msg = err.message || 'Falha no login'
+      // Diagnóstico do erro de conexão
+      if (/Failed to fetch|NetworkError|TypeError|Load failed/i.test(msg)) {
+        const url = getBase() || window.location.origin
+        const panelIsHttps = window.location.protocol === 'https:'
+        const urlIsHttp = /^http:\/\//i.test(url)
+        if (panelIsHttps && urlIsHttp) {
+          setError(
+            `🚫 O navegador BLOQUEOU a conexão (mixed content). ` +
+            `O painel é HTTPS mas a URL do daemon é HTTP. ` +
+            `Use a URL HTTPS do Cloudflare Tunnel (ex: https://xxx.trycloudflare.com) — ` +
+            `ou acesse o painel direto em http://localhost:3000 no seu PC.`
+          )
+        } else {
+          setError(
+            `🔌 ${msg} — o daemon não responde em ${url}. ` +
+            `Verifique: (1) o daemon está rodando (cd daemon && npm start)? ` +
+            `(2) a URL abaixo está correta? (3) Use "Testar conexão" para diagnosticar.`
+          )
+        }
+      } else {
+        setError(msg)
       }
     } finally {
       setLoading(false)
