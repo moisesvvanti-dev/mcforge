@@ -4,10 +4,67 @@
 
 const TOKEN_KEY = 'mcforge_token'
 const USER_KEY = 'mcforge_user'
+const DAEMON_URL_KEY = 'mcforge_daemon_url'
 
-// URL base do daemon: Sempre relativo (''), pois o painel e o daemon rodam no mesmo site/túnel
+// Cache em memória do túnel descoberto
+let discoveredBaseUrl = null
+
+// Detecta se estamos rodando no GitHub Pages / Netlify / Vercel
+export function isHostedStaticPage() {
+  const host = window.location.hostname
+  return host.endsWith('github.io') || host.endsWith('netlify.app') || host.endsWith('vercel.app')
+}
+
+// Extrai usuário e repositório caso esteja no GitHub Pages
+export function getGitHubRepoInfo() {
+  const host = window.location.hostname
+  if (host.endsWith('.github.io')) {
+    const user = host.replace('.github.io', '')
+    const pathParts = window.location.pathname.split('/').filter(Boolean)
+    const repo = pathParts[0] || 'mcforge'
+    return { user, repo }
+  }
+  return { user: 'moisesvvanti-dev', repo: 'mcforge' }
+}
+
+// Descobre automaticamente a URL HTTPS do Daemon ativo no GitHub Actions
+export async function autoDiscoverDaemonUrl() {
+  if (discoveredBaseUrl) return discoveredBaseUrl
+
+  // Se o usuário estiver acessando diretamente pelo túnel do Cloudflare ou localhost, usa a própria origem
+  if (!isHostedStaticPage()) {
+    discoveredBaseUrl = ''
+    return ''
+  }
+
+  // Tenta recuperar do localStorage
+  const saved = localStorage.getItem(DAEMON_URL_KEY)
+  if (saved && saved.startsWith('https://')) {
+    discoveredBaseUrl = normalizeUrl(saved)
+    return discoveredBaseUrl
+  }
+
+  // Busca o arquivo tunnel.json atualizado pelo GitHub Actions
+  try {
+    const { user, repo } = getGitHubRepoInfo()
+    const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/main/tunnel.json?t=${Date.now()}`
+    const res = await fetch(rawUrl)
+    if (res.ok) {
+      const data = await res.json()
+      if (data && data.url && data.url.startsWith('https://')) {
+        discoveredBaseUrl = normalizeUrl(data.url)
+        localStorage.setItem(DAEMON_URL_KEY, discoveredBaseUrl)
+        return discoveredBaseUrl
+      }
+    }
+  } catch { }
+
+  return ''
+}
+
 export function getBase() {
-  return localStorage.getItem('mcforge_daemon_url') || ''
+  if (discoveredBaseUrl !== null) return discoveredBaseUrl
+  return localStorage.getItem(DAEMON_URL_KEY) || ''
 }
 
 export function normalizeUrl(url) {
@@ -21,8 +78,9 @@ export function normalizeUrl(url) {
 
 export function setDaemonUrl(url) {
   const normalized = normalizeUrl(url)
-  if (normalized) localStorage.setItem('mcforge_daemon_url', normalized)
-  else localStorage.removeItem('mcforge_daemon_url')
+  discoveredBaseUrl = normalized
+  if (normalized) localStorage.setItem(DAEMON_URL_KEY, normalized)
+  else localStorage.removeItem(DAEMON_URL_KEY)
 }
 
 export function getToken() {
@@ -55,9 +113,17 @@ export function isAuthenticated() {
   return !!getToken()
 }
 
-// ---------- API helper ----------
+// Inicia auto-descoberta em segundo plano imediatamente
+autoDiscoverDaemonUrl().catch(() => {})
+
+// ---------- API helper com suporte HTTPS completo ----------
 async function request(path, options = {}) {
-  const url = path
+  let base = getBase()
+  if (isHostedStaticPage() && !base) {
+    base = await autoDiscoverDaemonUrl()
+  }
+
+  const url = (base ? base.replace(/\/+$/, '') : '') + path
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -66,7 +132,12 @@ async function request(path, options = {}) {
   try {
     res = await fetch(url, { ...options, headers })
   } catch (err) {
-    throw new Error(`Falha de conexão com o servidor: ${err.message}`)
+    if (isHostedStaticPage() && !base) {
+      throw new Error(
+        'O servidor no GitHub Actions está offline ou iniciando. Inicie a Action "MCForge All-in-One" no GitHub para conectar!'
+      )
+    }
+    throw new Error(`Falha de conexão com o servidor (${url}): ${err.message}`)
   }
 
   if (res.status === 401) {
@@ -123,7 +194,7 @@ export const api = {
   updateServer: (id, patch) => request(`/api/servers/${id}`, {
     method: 'PUT', body: JSON.stringify(patch)
   }),
-  deleteServer: (id) => request(`/api/servers/${id}`, { method: 'DELETE' }),
+  deleteServer: (id) => request(`/api/servers/${id}`),
   startServer: (id) => request(`/api/servers/${id}/start`, { method: 'POST' }),
   stopServer: (id) => request(`/api/servers/${id}/stop`, { method: 'POST' }),
   restartServer: (id) => request(`/api/servers/${id}/restart`, { method: 'POST' }),
@@ -196,7 +267,8 @@ export const api = {
 
 // Upload de arquivos (multipart)
 async function uploadFile(path, file) {
-  const url = path
+  const base = getBase()
+  const url = (base ? base.replace(/\/+$/, '') : '') + path
   const formData = new FormData()
   formData.append('file', file)
 
@@ -214,10 +286,18 @@ async function uploadFile(path, file) {
   return data
 }
 
-// ---------- WebSocket ----------
+// ---------- WebSocket Seguro (WSS / WS) ----------
 export function getWsUrl() {
-  const host = window.location.host
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  const base = getBase()
+  let host, proto
+  if (base) {
+    const parsed = new URL(base)
+    host = parsed.host
+    proto = parsed.protocol === 'https:' ? 'wss' : 'ws'
+  } else {
+    host = window.location.host
+    proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  }
   return `${proto}://${host}/ws?token=${encodeURIComponent(getToken() || '')}`
 }
 

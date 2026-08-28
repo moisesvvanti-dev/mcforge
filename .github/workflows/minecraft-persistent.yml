@@ -1,9 +1,9 @@
 # ========================================================
 # MCForge - Hospedagem 100% Automática no GitHub Actions
-# 🌐 Painel Web e Servidor Minecraft em UM ÚNICO SITE
-# ⚡ Baixa e instala tudo sozinho (Java 21, Node, Cloudflared, Paper)
+# 🌐 Roda no IP do GitHub (Nuvem) — NÃO usa seu IP nem Localhost
+# ⚡ Baixa e instala tudo sozinho (Java 21, Node, Cloudflared, Playit, Paper)
 # 💾 Salva o mundo automaticamente sem perder progresso
-# 🛡️ Isolado (sem interferir em outros usuários/servidores)
+# 🛡️ Totalmente isolado (sem interferir em ninguém)
 # ========================================================
 
 name: 🚀 MCForge All-in-One (Servidor + Painel Web)
@@ -44,14 +44,13 @@ permissions:
 
 jobs:
   mcforge-host:
-    name: 🎮 Hospedagem MCForge
+    name: 🎮 Hospedagem MCForge na Nuvem GitHub
     runs-on: ubuntu-latest
     timeout-minutes: 340 # 5h40min de execução contínua
     env:
       MC_VERSION: ${{ inputs.version || '1.21.1' }}
       MC_TYPE: ${{ inputs.server_type || 'paper' }}
       MC_RAM: ${{ inputs.ram || '4G' }}
-      TUNNEL_ID: ${{ secrets.TUNNEL_ID }}
       DAEMON_PORT: 3000
 
     steps:
@@ -60,13 +59,13 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: ☕ Configurar Java 21 (Automático)
+      - name: ☕ Configurar Java 21 (Automático na Nuvem)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: 🟢 Configurar Node.js 20 (Automático)
+      - name: 🟢 Configurar Node.js 20 (Automático na Nuvem)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -94,72 +93,92 @@ jobs:
             tar -xzf backups/world-saved.tar.gz -C daemon/servers/
             echo "✓ Mundo restaurado com sucesso!"
           else
-            echo "ℹ️ Nenhum mundo salvo anterior. Um novo servidor será gerado automaticamente."
+            echo "ℹ️ Nenhum mundo anterior. O servidor criará um novo automaticamente na nuvem."
           fi
 
           if [ -f "backups/data-saved.tar.gz" ]; then
-            echo "🔑 Restaurando configurações e contas..."
+            echo "🔑 Restaurando configurações..."
             tar -xzf backups/data-saved.tar.gz -C daemon/data/
           fi
 
-      - name: 🌐 Baixar e Iniciar Cloudflare Tunnel
+      - name: 🌐 Instalar Ferramentas de Conexão (Cloudflared & Playit.gg)
         run: |
-          # Baixar cloudflared oficial
+          mkdir -p logs
+          # Instalar Cloudflared para o Painel Web
           curl -sL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
           sudo mv cloudflared /usr/local/bin/cloudflared
-          echo "✓ Cloudflared instalado com sucesso."
 
-      - name: 🚀 Iniciar MCForge All-in-One (Daemon + Painel na porta 3000)
+          # Instalar Playit.gg para o IP Público do Minecraft (TCP)
+          curl -SsL https://playit-cloud.github.io/ppa/key.gpg | gpg --dearmor | sudo tee /etc/apt/trusted.gpg.d/playit.gpg >/dev/null
+          echo "deb [signed-by=/etc/apt/trusted.gpg.d/playit.gpg] https://playit-cloud.github.io/ppa/data ./" | sudo tee /etc/apt/sources.list.d/playit.list >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq playit || echo "Playit via repo falhou, usando binário direto..."
+          
+          if ! command -v playit &>/dev/null; then
+            curl -sL -o playit https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-linux-amd64
+            chmod +x playit
+            sudo mv playit /usr/local/bin/playit
+          fi
+          echo "✓ Ferramentas de rede na nuvem instaladas."
+
+      - name: 🚀 Iniciar MCForge All-in-One (Nuvem GitHub)
         run: |
           cd daemon
           npm start > daemon.log 2>&1 &
           echo $! > ../daemon.pid
           cd ..
-          echo "Aguardando boot do MCForge..."
+          echo "Aguardando boot do MCForge no servidor do GitHub..."
           sleep 6
 
-      - name: 🔗 Criar Túnel e Publicar Site Único
+      - name: 🔗 Publicar Links de Acesso (IP do GitHub / Nuvem)
         run: |
           mkdir -p logs
-          # Inicia tunnel para o site do painel (porta 3000 que serve painel + api + websockets)
+          
+          # Inicia tunnel para o Painel Web (porta 3000)
           cloudflared tunnel --url http://localhost:3000 --no-autoupdate > logs/panel-tunnel.log 2>&1 &
           echo $! > panel-tunnel.pid
 
-          # Inicia tunnel TCP para a porta do Minecraft (25565)
-          cloudflared tunnel --url tcp://localhost:25565 --no-autoupdate > logs/mc-tunnel.log 2>&1 &
-          echo $! > mc-tunnel.pid
+          # Inicia playit em segundo plano para o IP de conexão do jogo
+          playit --secret "${{ secrets.PLAYIT_SECRET }}" > logs/playit.log 2>&1 &
+          echo $! > playit.pid
 
           # Aguarda túneis conectarem
           sleep 12
 
           PANEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/panel-tunnel.log | head -1)
-          MC_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/mc-tunnel.log | head -1)
 
           echo "PANEL_URL=$PANEL_URL" >> $GITHUB_ENV
-          echo "MC_URL=$MC_URL" >> $GITHUB_ENV
+
+          # Salva tunnel.json para o GitHub Pages conectar via HTTPS automaticamente
+          echo "{\"url\": \"$PANEL_URL\", \"online\": true, \"updatedAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > tunnel.json
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add tunnel.json 2>/dev/null || true
+          git commit -m "🌐 Atualizar link do tunnel HTTPS [skip ci]" 2>/dev/null || echo "tunnel.json inalterado"
+          git push origin main 2>&1 || echo "Push de tunnel.json pulado"
 
           # Exibir no Step Summary do GitHub Actions
-          echo "## 🎮 MCForge All-in-One Está Online!" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎮 MCForge na Nuvem GitHub Está Online!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🌐 Acesse o Painel de Controle (Site Único):" >> $GITHUB_STEP_SUMMARY
+          echo "> ☁️ **Servidor Rodando nos Servidores do GitHub (Azure Cloud)** — Seu IP e seu PC não são utilizados." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 1. Link do Painel Web (Gerenciamento):" >> $GITHUB_STEP_SUMMARY
           echo "[👉 Clique Aqui para Abrir o Painel Web: **$PANEL_URL**]($PANEL_URL)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> **Status:** 🟢 Online • **Minecraft:** $MC_TYPE $MC_VERSION • **RAM:** $MC_RAM" >> $GITHUB_STEP_SUMMARY
-          echo "> **Link do Painel:** \`$PANEL_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "> **Link Direto:** \`$PANEL_URL\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 📋 Instruções:" >> $GITHUB_STEP_SUMMARY
-          echo "1. Abra o link do painel acima em qualquer navegador (PC ou celular)." >> $GITHUB_STEP_SUMMARY
-          echo "2. No primeiro acesso, crie sua senha de **Administrador** no painel." >> $GITHUB_STEP_SUMMARY
-          echo "3. Crie, inicie e gerencie servidores, instale plugins e acompanhe o console ao vivo em tempo real!" >> $GITHUB_STEP_SUMMARY
-          echo "4. O mundo é salvo automaticamente ao final do ciclo." >> $GITHUB_STEP_SUMMARY
+          echo "### 🕹️ 2. Como os Jogadores Entram no Minecraft:" >> $GITHUB_STEP_SUMMARY
+          echo "- Abra o painel no link acima para ver seus servidores, ligar/desligar e pegar o IP de conexão dos jogadores." >> $GITHUB_STEP_SUMMARY
+          echo "- Seus amigos conectam pelo endereço público gerado pelo túnel na nuvem." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
 
           echo "================================================================="
-          echo "🎉 SITE DO PAINEL WEB ONLINE:"
-          echo "👉 $PANEL_URL"
+          echo "🎉 SERVIDOR E PAINEL ONLINE NA NUVEM DO GITHUB:"
+          echo "👉 Painel Web: $PANEL_URL"
           echo "================================================================="
 
-      - name: ⏳ Manter Servidor e Painel Ativos (Loop com Heartbeat)
+      - name: ⏳ Manter Servidor Ativo na Nuvem (Loop com Heartbeat)
         run: |
           DURATION=$(( 5 * 3600 + 20 * 60 )) # 5h20min
           ELAPSED=0
@@ -168,7 +187,7 @@ jobs:
             sleep 180
             ELAPSED=$(( ELAPSED + 180 ))
             REMAINING=$(( (DURATION - ELAPSED) / 60 ))
-            echo "[$(date -u +%T)] 🟢 MCForge Ativo | Site: $PANEL_URL | Restante deste ciclo: ${REMAINING}min"
+            echo "[$(date -u +%T)] 🟢 MCForge Cloud Ativo | Site: $PANEL_URL | Restante do ciclo: ${REMAINING}min"
             
             # Checar se o processo do Daemon está vivo
             if ! kill -0 $(cat daemon.pid) 2>/dev/null; then
@@ -185,7 +204,6 @@ jobs:
           echo "Salvando mundos e banco de dados..."
           mkdir -p backups
           
-          # Comprimir pastas de servidores e dados
           if [ -d "daemon/servers" ]; then
             tar -czf backups/world-saved.tar.gz -C daemon/servers . 2>/dev/null || true
             echo "✓ Backup do mundo gerado com sucesso!"
@@ -202,5 +220,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -f backups/*.tar.gz 2>/dev/null || true
-          git commit -m "💾 [Auto-Save] Backup automático do mundo [$(date -u +%Y-%m-%d\ %H:%M)]" 2>/dev/null || echo "Nada novo para commitar"
+          git commit -m "💾 [Auto-Save] Backup do mundo na nuvem [$(date -u +%Y-%m-%d\ %H:%M)]" 2>/dev/null || echo "Nada novo para commitar"
           git push origin main 2>&1 || echo "Push pulado ou sem alterações."
