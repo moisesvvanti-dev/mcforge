@@ -116,29 +116,45 @@ export async function triggerGitHubWorkflow(customToken, inputs = {}) {
   if (!token) {
     throw new Error('Token do GitHub não configurado. Adicione seu token para iniciar sem sair do painel.')
   }
-  
-  const res = await fetch(`https://api.github.com/repos/${user}/${repo}/actions/workflows/minecraft-persistent.yml/dispatches`, {
-    method: 'POST',
-    headers: {
-      'Accept': 'application/vnd.github+json',
-      'Authorization': `Bearer ${token.trim()}`,
-      'X-GitHub-Api-Version': '2022-11-28'
-    },
-    body: JSON.stringify({
-      ref: 'main',
-      inputs: {
-        version: inputs.version || '1.8.9',
-        server_type: inputs.type || 'paper',
-        ram: inputs.maxRam || inputs.ram || '4G'
-      }
-    })
-  })
 
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}))
-    throw new Error(data.message || `Erro ${res.status} ao disparar servidor no GitHub Actions`)
+  const workflowCandidates = ['minecraft-persistent.yml', 'minecraft-server.yml']
+  let lastError = ''
+
+  for (const wf of workflowCandidates) {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${user}/${repo}/actions/workflows/${wf}/dispatches`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/vnd.github+json',
+          'Authorization': `Bearer ${token.trim()}`,
+          'X-GitHub-Api-Version': '2022-11-28'
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: {
+            version: inputs.version || '1.8.9',
+            server_type: inputs.type || 'paper',
+            ram: inputs.maxRam || inputs.ram || '4G'
+          }
+        })
+      })
+
+      if (res.ok || res.status === 204) {
+        return true
+      }
+
+      const data = await res.json().catch(() => ({}))
+      lastError = data.message || `Erro ${res.status}`
+    } catch (e) {
+      lastError = e.message
+    }
   }
-  return true
+
+  if (lastError.includes('workflow_dispatch')) {
+    throw new Error('O GitHub ainda não recebeu os arquivos mais recentes. Execute "git push" no terminal para registrar o workflow no GitHub!')
+  }
+
+  throw new Error(lastError || 'Falha ao iniciar o workflow no GitHub.')
 }
 
 export function getToken() {
