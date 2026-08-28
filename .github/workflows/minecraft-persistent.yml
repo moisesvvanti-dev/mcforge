@@ -1,0 +1,161 @@
+# ============================================
+# MCForge - Servidor Minecraft PERSISTENTE
+# 🟢 Sempre ativo (renova a cada 5h30min antes do limite de 6h)
+# 💾 Mundo salvo no repositório a cada ciclo (nunca perde progresso)
+# 🌐 Mesmo domínio sempre (Cloudflare Tunnel fixo)
+# ============================================
+# COMO CONFIGURAR (1 vez):
+# 1. No seu PC: cloudflared tunnel login
+# 2. cloudflared tunnel create mcforge
+# 3. Guarde o conteúdo de ~/.cloudflared/<TUNNEL_ID>.json
+# 4. No GitHub: Settings → Secrets and variables → Actions → New secret:
+#    - CLOUDFLARED_CREDENTIALS = (cole o JSON)
+#    - TUNNEL_ID = (o UUID do tunnel)
+# 5. No Cloudflare: DNS → CNAME  mc.SEUDOMINIO.com → <TUNNEL_ID>.cfargotunnel.com (laranja)
+# 6. Jogadores conectam SEMPRE em: mc.SEUDOMINIO.com
+#
+# ⚠️ Downtime de ~2-5 min a cada ciclo (entre um job e outro)
+# ⚠️ Para 0 downtime, use seu PC ou VPS (Oracle grátis)
+# ============================================
+name: 🟢 Servidor Persistente (24/7 automático)
+
+on:
+  schedule:
+    # A cada 5h30min — sempre antes do limite de 6h do GitHub Actions
+    - cron: '0 */5 * * *'
+    - cron: '30 1,6,11,16,21 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do Minecraft'
+        required: true
+        default: '1.21.11'
+      ram:
+        description: 'RAM máxima (ex: 3G)'
+        required: true
+        default: '3G'
+
+permissions:
+  contents: write
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340   # 5h40min (menos que 6h para ter folga)
+    env:
+      MC_VERSION: ${{ inputs.version || '1.21.11' }}
+      MC_RAM: ${{ inputs.ram || '3G' }}
+      TUNNEL_ID: ${{ secrets.TUNNEL_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Recuperar mundo salvo (se existir)
+        run: |
+          mkdir -p server
+          if [ -f "server/world-backup.tar.gz" ]; then
+            echo "🎮 Mundo salvo encontrado — restaurando..."
+            tar -xzf server/world-backup.tar.gz -C server/
+            echo "Mundo restaurado com sucesso"
+          else
+            echo "Nenhum mundo salvo ainda — será criado novo"
+          fi
+
+      - name: Baixar servidor Paper (se não existir)
+        run: |
+          if [ ! -f "server/paper.jar" ]; then
+            echo "Baixando Paper $MC_VERSION..."
+            BUILDS=$(curl -s "https://fill.papermc.io/v3/projects/paper/versions/$MC_VERSION/builds")
+            URL=$(echo "$BUILDS" | jq -r '.[-1].downloads["server:default"].url')
+            NAME=$(echo "$BUILDS" | jq -r '.[-1].downloads["server:default"].name')
+            curl -o "server/$NAME" "$URL"
+            echo "Paper baixado: $NAME"
+          else
+            echo "Paper.jar já existe"
+          fi
+
+      - name: Aceitar EULA
+        run: echo "eula=true" > server/eula.txt
+
+      - name: Iniciar servidor
+        run: |
+          cd server
+          JAR=$(ls *.jar 2>/dev/null | grep -v installer | head -1)
+          echo "Iniciando: $JAR"
+          java -Xms1G -Xmx$MC_RAM -jar "$JAR" nogui > server.log 2>&1 &
+          echo "PID=$!" > pid.txt
+          sleep 20
+          tail -20 server.log
+
+      - name: Conectar ao Tunnel fixo (mesmo domínio)
+        if: env.TUNNEL_ID != ''
+        run: |
+          echo "${{ secrets.CLOUDFLARED_CREDENTIALS }}" > /home/runner/.cloudflared-cred.json
+          mkdir -p /home/runner/.cloudflared
+          cp /home/runner/.cloudflared-cred.json /home/runner/.cloudflared/$TUNNEL_ID.json
+          # Baixar cloudflared
+          curl -sL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          ./cloudflared tunnel --no-autoupdate run $TUNNEL_ID > tunnel.log 2>&1 &
+          sleep 15
+          echo "🌐 Tunnel conectado ao domínio fixo! Jogadores entram em mc.SEUDOMINIO.com"
+          grep -i "Registered tunnel connection" tunnel.log | head -2 || tail -5 tunnel.log
+
+      - name: Sem Tunnel (aviso)
+        if: env.TUNNEL_ID == ''
+        run: |
+          echo "⚠️ TUNNEL_ID não configurado! Configure os secrets para expor na internet."
+          echo "Enquanto isso, o servidor roda mas só é acessível internamente."
+
+      - name: Servidor rodando (auto-renovação em 5h30min)
+        run: |
+          # Loop de vida do servidor — cerca de 5h20min
+          DURATION=$(( 5 * 3600 + 20 * 60 ))
+          ELAPSED=0
+          while [ $ELAPSED -lt $DURATION ]; do
+            sleep 120
+            ELAPSED=$(( ELAPSED + 120 ))
+            # Heartbeat
+            echo "[$(date -u +%H:%M:%S)] Servidor ativo... (${ELAPSED}s de ${DURATION}s)"
+            # Verificar se o processo Java ainda está vivo
+            if ! kill -0 $(cat server/pid.txt) 2>/dev/null; then
+              echo "⚠️ Processo Java morreu — reiniciando..."
+              cd server
+              JAR=$(ls *.jar 2>/dev/null | grep -v installer | head -1)
+              java -Xms1G -Xmx$MC_RAM -jar "$JAR" nogui >> server.log 2>&1 &
+              echo "PID=$!" > pid.txt
+              cd ..
+            fi
+          done
+
+      - name: ⚠️ Finalizar servidor + SALVAR MUNDO
+        if: always()
+        run: |
+          echo "Salvando o mundo e encerrando servidor..."
+          # Salvar o mundo com o comando do Minecraft
+          cd server
+          java_pid=$(cat pid.txt 2>/dev/null)
+          # Enviar comandos save-all e stop
+          echo "save-all" | timeout 5 bash -c 'cat > /proc/'"$java_pid"'/fd/0' 2>/dev/null || true
+          sleep 10
+          echo "stop" | timeout 5 bash -c 'cat > /proc/'"$java_pid"'/fd/0' 2>/dev/null || true
+          sleep 15
+          kill $java_pid 2>/dev/null || true
+          # Comprimir o mundo
+          tar -czf world-backup.tar.gz world/ 2>/dev/null || echo "⚠️ Nenhuma pasta world/ para salvar"
+          ls -lh world-backup.tar.gz 2>/dev/null || echo "Sem backup gerado"
+
+      - name: Commit do mundo no repositório
+        if: always()
+        run: |
+          git config user.name "mcforge-bot"
+          git config user.email "mcforge@users.noreply.github.com"
+          git add -f server/world-backup.tar.gz server/server.log 2>/dev/null || true
+          git commit -m "💾 backup do mundo [$(date -u +%Y-%m-%dT%H:%M:%SZ)]" 2>/dev/null || echo "Nada para commitar"
+          git push origin main 2>&1 | tail -2 || echo "Push falhou (pode ser conflito — será resolvido no próximo ciclo)"
