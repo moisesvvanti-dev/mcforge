@@ -3,6 +3,7 @@
 // ============================================
 
 const TOKEN_KEY = 'mcforge_token'
+const USER_KEY = 'mcforge_user'
 const URL_KEY = 'mcforge_daemon_url'
 
 // URL base do daemon.
@@ -40,7 +41,24 @@ export function getToken() {
 
 export function setToken(token) {
   if (token) localStorage.setItem(TOKEN_KEY, token)
-  else localStorage.removeItem(TOKEN_KEY)
+  else {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(USER_KEY)
+  }
+}
+
+export function getUser() {
+  try {
+    const raw = localStorage.getItem(USER_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+export function setUser(user) {
+  if (user) localStorage.setItem(USER_KEY, JSON.stringify(user))
+  else localStorage.removeItem(USER_KEY)
 }
 
 export function isAuthenticated() {
@@ -55,14 +73,30 @@ async function request(path, options = {}) {
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(url, { ...options, headers })
+  let res
+  try {
+    res = await fetch(url, { ...options, headers })
+  } catch (err) {
+    // Diagnosticar erro de conexão / CORS / Mixed Content
+    const panelIsHttps = window.location.protocol === 'https:'
+    const targetIsHttp = /^http:\/\//i.test(url) || (!base && panelIsHttps)
+    if (panelIsHttps && targetIsHttp) {
+      throw new Error('Bloqueio Mixed-Content: Painel HTTPS não pode conectar diretamente a daemon HTTP sem Tunnel com SSL ou proxy.')
+    }
+    throw new Error(`Falha de conexão com o daemon (${url || 'localhost:3000'}): ${err.message}`)
+  }
 
   if (res.status === 401) {
     setToken(null)
-    if (!window.location.pathname.includes('/login')) {
+    if (!window.location.pathname.includes('/login') && !window.location.hash.includes('/login')) {
       window.location.hash = '#/login'
     }
-    throw new Error('Sessão expirada. Faça login novamente.')
+    let errData = null
+    try {
+      const t = await res.text()
+      errData = t ? JSON.parse(t) : null
+    } catch { }
+    throw new Error((errData && errData.error) || 'Sessão expirada ou credenciais inválidas.')
   }
 
   let data = null
@@ -81,6 +115,10 @@ export const api = {
   login: (username, password) => request('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({ username, password })
+  }),
+  register: (username, password, name) => request('/api/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ username, password, name })
   }),
   authStatus: () => request('/api/auth/status'),
   health: () => request('/api/health'),

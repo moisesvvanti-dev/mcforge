@@ -1,6 +1,6 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
-import { setToken, getToken } from '../lib/api'
+import { setToken, getToken, getUser } from '../lib/api'
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: 'M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z' },
@@ -96,29 +96,52 @@ export default function Layout({ children, ws }) {
               </Link>
 
               <div className="relative">
-                <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
-                >
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-green-500 to-blue-600 flex items-center justify-center text-xs font-bold">
-                    A
-                  </div>
-                  <span className="text-sm text-gray-300 hidden sm:block">Admin</span>
-                </button>
+                {(() => {
+                  const currentUser = getUser()
+                  const displayName = currentUser?.name || currentUser?.username || 'Admin'
+                  const initial = (displayName[0] || 'A').toUpperCase()
+                  const isAdmin = currentUser?.role === 'admin'
 
-                {userMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-700 rounded-xl shadow-xl py-2 animate-fade-in">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-800 transition-colors flex items-center gap-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                      </svg>
-                      Sair
-                    </button>
-                  </div>
-                )}
+                  return (
+                    <>
+                      <button
+                        onClick={() => setUserMenuOpen(!userMenuOpen)}
+                        className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-gray-850 bg-gray-900/60 border border-gray-800 transition-colors"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-green-400 to-emerald-600 flex items-center justify-center text-xs font-black text-gray-950 shadow-sm">
+                          {initial}
+                        </div>
+                        <div className="text-left hidden sm:block">
+                          <div className="text-xs font-semibold text-gray-200 leading-tight">{displayName}</div>
+                          <div className="text-[10px] text-gray-500">{isAdmin ? 'Administrador' : 'Membro'}</div>
+                        </div>
+                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {userMenuOpen && (
+                        <div className="absolute right-0 mt-2 w-52 bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl py-2 z-50 animate-fade-in divide-y divide-gray-800/60">
+                          <div className="px-4 py-2">
+                            <div className="text-xs font-semibold text-white">{displayName}</div>
+                            <div className="text-[11px] text-gray-400 font-mono">@{currentUser?.username || 'admin'}</div>
+                          </div>
+                          <div className="pt-1">
+                            <button
+                              onClick={handleLogout}
+                              className="w-full text-left px-4 py-2.5 text-xs text-red-400 hover:bg-red-500/10 transition-colors flex items-center gap-2 font-medium"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                              </svg>
+                              Sair da Sessão
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </div>

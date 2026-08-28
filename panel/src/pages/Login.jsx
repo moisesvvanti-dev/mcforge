@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, setToken, setDaemonUrl as persistDaemonUrl, getBase } from '../lib/api'
+import { api, setToken, setUser, setDaemonUrl as persistDaemonUrl, getBase } from '../lib/api'
 import Spinner from '../components/Spinner'
 
 // Detecta se o painel está rodando no mesmo lugar do daemon (localhost)
@@ -9,203 +9,808 @@ function isLocalEnvironment() {
   return host === 'localhost' || host === '127.0.0.1' || host === ''
 }
 
+// Avaliador de força de senha
+function evaluatePasswordStrength(password) {
+  if (!password) return { score: 0, label: '', color: 'bg-gray-700', textClass: 'text-gray-500' }
+  let score = 0
+  if (password.length >= 6) score += 1
+  if (password.length >= 10) score += 1
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score += 1
+  if (/[0-9]/.test(password)) score += 1
+  if (/[^A-Za-z0-9]/.test(password)) score += 1
+
+  if (score <= 1) return { score: 1, label: 'Fraca', color: 'bg-red-500', textClass: 'text-red-400' }
+  if (score <= 3) return { score: 2, label: 'Média', color: 'bg-amber-500', textClass: 'text-amber-400' }
+  if (score === 4) return { score: 3, label: 'Boa', color: 'bg-emerald-500', textClass: 'text-emerald-400' }
+  return { score: 4, label: 'Excelente', color: 'bg-cyan-400', textClass: 'text-cyan-300' }
+}
+
 export default function Login() {
   const navigate = useNavigate()
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [isFirstSetup, setIsFirstSetup] = useState(false)
-  const [daemonUrl, setUrlInput] = useState(localStorage.getItem('mcforge_daemon_url') || '')
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState(null) // null | {ok, msg}
   const localEnv = isLocalEnvironment()
 
-  // Em ambiente local o campo de URL não é necessário
-  const showUrlField = !localEnv || daemonUrl !== ''
+  // Tabs: 'login' | 'register' | 'daemon'
+  const [tab, setTab] = useState('login')
 
-  // Verificar se é primeira execução (quando conectado)
-  useEffect(() => {
-    const check = async () => {
-      try {
-        const res = await api.authStatus()
-        setIsFirstSetup(!res.initialized)
-      } catch {
-        // Daemon inacessível — segue em frente, o login mostrará o erro
-      }
-    }
-    check()
-  }, [])
+  // Form states
+  const [username, setUsername] = useState(localStorage.getItem('mcforge_saved_user') || '')
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [rememberUser, setRememberUser] = useState(true)
 
-  const saveUrlIfNeeded = () => {
-    if (daemonUrl.trim()) {
-      persistDaemonUrl(daemonUrl.trim())
-    } else if (!localEnv) {
-      // Em GitHub Pages/Netlify sem URL, tenta o proxy relativo
+  // Status & loading
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
+  const [isFirstSetup, setIsFirstSetup] = useState(false)
+  const [checkingSetup, setCheckingSetup] = useState(true)
+
+  // Daemon connection
+  const [daemonUrl, setUrlInput] = useState(localStorage.getItem('mcforge_daemon_url') || '')
+  const [connectionStatus, setConnectionStatus] = useState('checking') // 'checking' | 'connected' | 'error'
+  const [pingMs, setPingMs] = useState(null)
+  const [testing, setTesting] = useState(false)
+  const [testMessage, setTestMessage] = useState('')
+
+  const passwordStrength = useMemo(() => evaluatePasswordStrength(password), [password])
+  const passwordsMatch = !confirmPassword || password === confirmPassword
+
+  // Salva a URL no localStorage se necessário
+  const saveUrl = (urlToSave) => {
+    const val = typeof urlToSave === 'string' ? urlToSave : daemonUrl
+    if (val.trim()) {
+      persistDaemonUrl(val.trim())
+    } else {
       persistDaemonUrl('')
     }
   }
 
-  const testConnection = async () => {
+  // Testar conexão com o Daemon e medir latência
+  const testDaemonConnection = async (customUrl) => {
     setTesting(true)
-    setTestResult(null)
-    saveUrlIfNeeded()
+    setError('')
+    setTestMessage('')
+    if (customUrl !== undefined) saveUrl(customUrl)
+    else saveUrl(daemonUrl)
+
+    const startTime = performance.now()
     try {
       const res = await api.health()
-      setTestResult({ ok: true, msg: `Daemon conectado! (${res.status})` })
+      const latency = Math.round(performance.now() - startTime)
+      setPingMs(latency)
+      setConnectionStatus('connected')
+      setTestMessage(`Conectado com sucesso! (${latency}ms)`)
+
+      // Checa se o daemon está inicializado
+      try {
+        const authStat = await api.authStatus()
+        setIsFirstSetup(!authStat.initialized)
+      } catch { }
+      return true
     } catch (e) {
-      setTestResult({ ok: false, msg: `Falha: ${e.message}` })
+      setConnectionStatus('error')
+      setPingMs(null)
+      const isMixed = window.location.protocol === 'https:' && /^http:\/\//i.test(getBase())
+      if (isMixed) {
+        setTestMessage('Erro: Bloqueio Mixed-Content (HTTPS não pode acessar daemon HTTP sem túnel seguro).')
+      } else {
+        setTestMessage(`Falha de conexão: ${e.message}`)
+      }
+      return false
     } finally {
       setTesting(false)
     }
   }
 
-  const handleSubmit = async (e) => {
+  // Verificar status inicial do daemon
+  useEffect(() => {
+    let isMounted = true
+    const checkInit = async () => {
+      setCheckingSetup(true)
+      const start = performance.now()
+      try {
+        const [authStat] = await Promise.all([
+          api.authStatus(),
+          api.health()
+        ])
+        if (isMounted) {
+          const latency = Math.round(performance.now() - start)
+          setPingMs(latency)
+          setConnectionStatus('connected')
+          if (!authStat.initialized) {
+            setIsFirstSetup(true)
+            setTab('register')
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setConnectionStatus('error')
+        }
+      } finally {
+        if (isMounted) setCheckingSetup(false)
+      }
+    }
+    checkInit()
+    return () => { isMounted = false }
+  }, [])
+
+  // Limpa mensagens ao trocar de aba
+  useEffect(() => {
+    setError('')
+    setSuccessMsg('')
+  }, [tab])
+
+  // Submissão do Login
+  const handleLoginSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    setSuccessMsg('')
     setLoading(true)
+
+    const finalUsername = (username || 'admin').trim()
+
+    if (!password) {
+      setError('Por favor, informe a sua senha.')
+      setLoading(false)
+      return
+    }
+
     try {
-      saveUrlIfNeeded()
-      const result = await api.login(username || 'admin', password)
-      setToken(result.token)
-      if (result.firstLogin) {
-        setIsFirstSetup(false)
-      }
-      navigate('/')
-    } catch (err) {
-      const msg = err.message || 'Falha no login'
-      // Diagnóstico do erro de conexão
-      if (/Failed to fetch|NetworkError|TypeError|Load failed/i.test(msg)) {
-        const url = getBase() || window.location.origin
-        const panelIsHttps = window.location.protocol === 'https:'
-        const urlIsHttp = /^http:\/\//i.test(url)
-        if (panelIsHttps && urlIsHttp) {
-          setError(
-            `🚫 O navegador BLOQUEOU a conexão (mixed content). ` +
-            `O painel é HTTPS mas a URL do daemon é HTTP. ` +
-            `Use a URL HTTPS do Cloudflare Tunnel (ex: https://xxx.trycloudflare.com) — ` +
-            `ou acesse o painel direto em http://localhost:3000 no seu PC.`
-          )
+      saveUrl()
+      const result = await api.login(finalUsername, password)
+      
+      if (result.token) {
+        setToken(result.token)
+        if (result.user) setUser(result.user)
+        if (rememberUser && finalUsername) {
+          localStorage.setItem('mcforge_saved_user', finalUsername)
         } else {
-          setError(
-            `🔌 ${msg} — o daemon não responde em ${url}. ` +
-            `Verifique: (1) o daemon está rodando (cd daemon && npm start)? ` +
-            `(2) a URL abaixo está correta? (3) Use "Testar conexão" para diagnosticar.`
-          )
+          localStorage.removeItem('mcforge_saved_user')
         }
+        navigate('/')
       } else {
-        setError(msg)
+        setError('Resposta inválida do servidor de autenticação.')
       }
+    } catch (err) {
+      handleAuthError(err)
     } finally {
       setLoading(false)
     }
   }
 
+  // Submissão de Registro / Criação de Usuário
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccessMsg('')
+
+    const finalUsername = username.trim()
+
+    if (!finalUsername) {
+      setError('Por favor, escolha um nome de usuário.')
+      return
+    }
+
+    if (finalUsername.length < 3) {
+      setError('O nome de usuário deve ter pelo menos 3 caracteres.')
+      return
+    }
+
+    if (!password || password.length < 6) {
+      setError('A senha deve conter no mínimo 6 caracteres.')
+      return
+    }
+
+    if (password !== confirmPassword) {
+      setError('As senhas digitadas não coincidem. Verifique e tente novamente.')
+      return
+    }
+
+    setLoading(true)
+
+    try {
+      saveUrl()
+      const result = await api.register(finalUsername, password, name.trim())
+      
+      if (result.token) {
+        setToken(result.token)
+        if (result.user) setUser(result.user)
+        if (rememberUser) {
+          localStorage.setItem('mcforge_saved_user', finalUsername)
+        }
+        setIsFirstSetup(false)
+        navigate('/')
+      } else {
+        setSuccessMsg('Conta criada com sucesso! Você já pode entrar.')
+        setTab('login')
+      }
+    } catch (err) {
+      handleAuthError(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Tratador amigável de erros de conexão e auth
+  const handleAuthError = (err) => {
+    const msg = err.message || 'Erro inesperado'
+    if (/Failed to fetch|NetworkError|TypeError|Load failed|Bloqueio Mixed-Content|Falha de conexão/i.test(msg)) {
+      const url = getBase() || (localEnv ? 'http://localhost:3000' : window.location.origin)
+      const panelIsHttps = window.location.protocol === 'https:'
+      const urlIsHttp = /^http:\/\//i.test(url)
+
+      if (panelIsHttps && urlIsHttp) {
+        setError(
+          '🚫 Conexão Bloqueada (Mixed Content): O painel está em HTTPS, mas o daemon está em HTTP. Utilize o endereço seguro do Cloudflare Tunnel (ex: https://xxx.trycloudflare.com) na aba "Conexão", ou acesse via localhost:3000.'
+        )
+      } else {
+        setError(
+          `🔌 Não foi possível conectar ao daemon em "${url}". Verifique se o daemon está iniciado (npm start na pasta daemon) e teste na aba "Conexão".`
+        )
+      }
+    } else {
+      setError(msg)
+    }
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-950 relative overflow-hidden">
-      {/* Background decorativo */}
-      <div className="absolute inset-0 opacity-20 pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 rounded-full bg-green-600/30 blur-[120px]" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 rounded-full bg-blue-600/30 blur-[120px]" />
+    <div className="min-h-screen flex items-center justify-center bg-gray-950 relative overflow-hidden px-4 py-12 selection:bg-green-500 selection:text-black">
+      {/* Background Decorativo com Malha Gradiente e Orbes Neon */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full bg-gradient-to-br from-green-500/20 to-emerald-800/10 blur-[130px] animate-pulse-slow" />
+        <div className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full bg-gradient-to-tl from-cyan-600/20 to-blue-700/10 blur-[140px] animate-pulse-slow" style={{ animationDelay: '1.5s' }} />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-emerald-950/20 blur-[160px]" />
+        
+        {/* Grid de fundo sutil */}
+        <div 
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `radial-gradient(rgba(255, 255, 255, 0.4) 1px, transparent 1px)`,
+            backgroundSize: '24px 24px'
+          }}
+        />
       </div>
 
-      <div className="relative w-full max-w-md p-8">
+      <div className="relative w-full max-w-lg z-10">
+        {/* Header com Logo Isometrico / 3D Stylized */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-green-400 to-green-700 shadow-glow mb-4">
-            <svg className="w-9 h-9 text-gray-950" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M6 3h12v4H6V3zm0 14h12v4H6v-4zm2-10h8v2H8V7zm0 6h8v2H8v-2z" />
-            </svg>
+          <div className="relative inline-block group">
+            <div className="absolute -inset-1.5 bg-gradient-to-r from-green-500 via-emerald-400 to-cyan-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-pulse-slow" />
+            <div className="relative inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gray-900 border border-green-500/30 text-white shadow-2xl overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-green-500/20 to-transparent pointer-events-none" />
+              {/* Ícone de Bloco Minecraft Isométrico */}
+              <svg className="w-11 h-11 text-green-400 drop-shadow-[0_0_12px_rgba(74,222,128,0.6)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+            </div>
           </div>
-          <h1 className="text-3xl font-black text-white">MCForge</h1>
-          <p className="text-gray-500 mt-1">Painel de hospedagem de Minecraft</p>
+
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-gray-100 to-gray-300 tracking-tight mt-4">
+            MCForge
+          </h1>
+          <p className="text-gray-400 text-sm mt-1 flex items-center justify-center gap-2">
+            <span>Painel Avançado de Hospedagem</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
+            <span className="text-gray-500 text-xs font-mono">v1.0</span>
+          </p>
+
+          {/* Status do Daemon em Tempo Real */}
+          <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-gray-900/80 border border-gray-800 backdrop-blur">
+            <span className="relative flex h-2 w-2">
+              {connectionStatus === 'connected' && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              )}
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${
+                connectionStatus === 'connected' ? 'bg-green-500' :
+                connectionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-red-500'
+              }`} />
+            </span>
+            <span className="text-gray-300">
+              {connectionStatus === 'connected' && (pingMs !== null ? `Daemon Online • ${pingMs}ms` : 'Daemon Online')}
+              {connectionStatus === 'checking' && 'Verificando conexão...'}
+              {connectionStatus === 'error' && 'Daemon Desconectado'}
+            </span>
+          </div>
         </div>
 
-        <div className="card p-6 shadow-2xl">
+        {/* Card Principal com Glassmorphism */}
+        <div className="bg-gray-900/85 backdrop-blur-xl border border-gray-800/80 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.7)] transition-all">
+          {/* Banner de Primeira Execução */}
           {isFirstSetup && (
-            <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
-              <strong>Primeira execução!</strong> Defina a senha mestre do seu painel.
-            </div>
-          )}
-
-          {!localEnv && (
-            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-300 text-xs">
-              🌐 Painel hospedado na nuvem. Conecte ao daemon do seu PC para continuar.
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="label">Nome de usuário</label>
-              <input
-                type="text"
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                placeholder="admin"
-                className="input"
-              />
-            </div>
-
-            <div>
-              <label className="label">Senha</label>
-              <input
-                type="password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder={isFirstSetup ? 'Crie uma senha forte' : 'Sua senha'}
-                className="input"
-                autoFocus
-              />
-            </div>
-
-            {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-                {error}
+            <div className="mb-6 p-4 bg-gradient-to-r from-emerald-500/15 via-green-500/10 to-transparent border border-emerald-500/30 rounded-2xl animate-fade-in flex items-start gap-3">
+              <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400 shrink-0">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
               </div>
-            )}
+              <div>
+                <h4 className="text-sm font-bold text-emerald-300">🚀 Primeira Execução Detectada</h4>
+                <p className="text-xs text-gray-300 mt-0.5 leading-relaxed">
+                  Defina a conta mestre do Administrador para inicializar e proteger seu painel.
+                </p>
+              </div>
+            </div>
+          )}
 
-            <button type="submit" disabled={loading || !password} className="btn-primary w-full !py-3">
-              {loading ? <Spinner size="sm" /> : isFirstSetup ? 'Definir Senha e Entrar' : 'Entrar'}
+          {/* Navegação por Abas */}
+          <div className="flex bg-gray-950/70 p-1.5 rounded-2xl border border-gray-800 mb-6 gap-1">
+            <button
+              type="button"
+              onClick={() => setTab('login')}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                tab === 'login'
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-900/30'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+              </svg>
+              Entrar
             </button>
-          </form>
 
-          {/* URL do daemon — sempre visível quando o painel não está no mesmo local que o daemon */}
-          {(showUrlField || !localEnv) && (
-            <div className="mt-4 pt-4 border-t border-gray-800 animate-fade-in">
-              <label className="label">
-                URL do daemon {localEnv ? '(opcional — use só se o daemon estiver em outra máquina)' : '(obrigatória — onde o daemon está rodando)'}
-              </label>
-              <input
-                type="text"
-                value={daemonUrl}
-                onChange={e => {
-                  setUrlInput(e.target.value)
-                  setTestResult(null)
-                }}
-                placeholder={localEnv ? 'http://localhost:3000' : 'https://seu-tunnel.trycloudflare.com'}
-                className="input"
-              />
-              <p className="text-[11px] text-gray-500 mt-1">
-                {localEnv
-                  ? 'Deixe vazio se o painel está rodando junto com o daemon (localhost).'
-                  : 'Ex: https://seu-tunnel.trycloudflare.com (Cloudflare Tunnel) ou http://SEU_IP:3000 (port forwarding).'}
-              </p>
-              <div className="flex items-center gap-2 mt-2">
-                <button type="button" onClick={testConnection} disabled={testing} className="btn-secondary !py-1.5 text-xs">
-                  {testing ? <Spinner size="sm" /> : '🔌 Testar conexão'}
-                </button>
-                {testResult && (
-                  <span className={`text-xs ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
-                    {testResult.msg}
-                  </span>
+            <button
+              type="button"
+              onClick={() => setTab('register')}
+              className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                tab === 'register'
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-900/30'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              {isFirstSetup ? 'Criar Admin' : 'Registrar'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTab('daemon')}
+              className={`py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+                tab === 'daemon'
+                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-900/30'
+                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
+              }`}
+              title="Configurações de Rede do Daemon"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
+              </svg>
+              <span className="hidden sm:inline">Conexão</span>
+            </button>
+          </div>
+
+          {/* Mensagens Globais de Sucesso e Erro */}
+          {error && (
+            <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs sm:text-sm flex items-start gap-3 animate-slide-up">
+              <svg className="w-5 h-5 shrink-0 text-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="leading-relaxed">{error}</span>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="mb-5 p-3.5 bg-green-500/10 border border-green-500/30 rounded-2xl text-green-400 text-xs sm:text-sm flex items-start gap-3 animate-slide-up">
+              <svg className="w-5 h-5 shrink-0 text-green-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="leading-relaxed">{successMsg}</span>
+            </div>
+          )}
+
+          {/* ======================= ABA: LOGIN ======================= */}
+          {tab === 'login' && (
+            <form onSubmit={handleLoginSubmit} className="space-y-4 animate-fade-in">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Nome de Usuário</span>
+                  <span className="text-[11px] text-gray-500 lowercase">ex: admin ou jogador</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    placeholder="admin"
+                    className="input !pl-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30"
+                    autoComplete="username"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Senha</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Sua senha de acesso"
+                    className="input !pl-10 !pr-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30"
+                    autoComplete="current-password"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    {showPassword ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between text-xs pt-1">
+                <label className="flex items-center gap-2 text-gray-400 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={rememberUser}
+                    onChange={e => setRememberUser(e.target.checked)}
+                    className="w-4 h-4 rounded bg-gray-950 border-gray-700 text-green-600 focus:ring-green-500 focus:ring-offset-gray-950"
+                  />
+                  <span>Lembrar meu usuário</span>
+                </label>
+
+                {connectionStatus === 'error' && (
+                  <button
+                    type="button"
+                    onClick={() => setTab('daemon')}
+                    className="text-emerald-400 hover:underline inline-flex items-center gap-1"
+                  >
+                    Ajustar URL
+                  </button>
                 )}
               </div>
+
+              <button
+                type="submit"
+                disabled={loading || !password}
+                className="btn-primary w-full !py-3 !rounded-xl font-bold flex items-center justify-center gap-2 mt-2 transition-all active:scale-[0.99]"
+              >
+                {loading ? (
+                  <>
+                    <Spinner size="sm" />
+                    <span>Entrando no painel...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Entrar no Painel</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* ======================= ABA: REGISTRO / CRIAR CONTA ======================= */}
+          {tab === 'register' && (
+            <form onSubmit={handleRegisterSubmit} className="space-y-4 animate-fade-in">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Nome de Usuário (Login)</span>
+                  <span className="text-[11px] text-gray-500">letras, números ou _</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    placeholder={isFirstSetup ? 'admin' : 'novo_usuario'}
+                    className="input !pl-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30"
+                    autoComplete="username"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Nome Completo ou Apelido (Opcional)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    placeholder="Ex: Steve da Silva"
+                    className="input !pl-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Senha</span>
+                  {password && (
+                    <span className={`text-[11px] font-semibold ${passwordStrength.textClass}`}>
+                      Força: {passwordStrength.label}
+                    </span>
+                  )}
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                  </div>
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="input !pl-10 !pr-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30"
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    {showPassword ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+
+                {/* Barra de Força da Senha */}
+                {password && (
+                  <div className="mt-2 flex gap-1 h-1.5 w-full bg-gray-800 rounded-full overflow-hidden">
+                    <div className={`h-full transition-all duration-300 ${passwordStrength.score >= 1 ? passwordStrength.color : 'bg-transparent'}`} style={{ width: '25%' }} />
+                    <div className={`h-full transition-all duration-300 ${passwordStrength.score >= 2 ? passwordStrength.color : 'bg-transparent'}`} style={{ width: '25%' }} />
+                    <div className={`h-full transition-all duration-300 ${passwordStrength.score >= 3 ? passwordStrength.color : 'bg-transparent'}`} style={{ width: '25%' }} />
+                    <div className={`h-full transition-all duration-300 ${passwordStrength.score >= 4 ? passwordStrength.color : 'bg-transparent'}`} style={{ width: '25%' }} />
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>Confirmar Senha</span>
+                  {confirmPassword && (
+                    <span className={`text-[11px] ${passwordsMatch ? 'text-green-400' : 'text-red-400'}`}>
+                      {passwordsMatch ? '✓ Senhas coincidem' : '✗ Senhas não coincidem'}
+                    </span>
+                  )}
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                  </div>
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    placeholder="Repita a senha"
+                    className={`input !pl-10 !pr-10 !py-2.5 !bg-gray-950/60 ${
+                      confirmPassword && !passwordsMatch
+                        ? '!border-red-500/80 focus:!ring-red-500/30'
+                        : '!border-gray-800 focus:!border-green-500 focus:!ring-green-500/30'
+                    }`}
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    {showConfirmPassword ? (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                      </svg>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading || !username || !password || (confirmPassword && !passwordsMatch)}
+                className="btn-primary w-full !py-3 !rounded-xl font-bold flex items-center justify-center gap-2 mt-2 transition-all active:scale-[0.99]"
+              >
+                {loading ? (
+                  <>
+                    <Spinner size="sm" />
+                    <span>Criando conta e entrando...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>{isFirstSetup ? 'Definir Senha Mestre & Entrar' : 'Criar Conta e Entrar'}</span>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                  </>
+                )}
+              </button>
+            </form>
+          )}
+
+          {/* ======================= ABA: CONEXÃO COM DAEMON ======================= */}
+          {tab === 'daemon' && (
+            <div className="space-y-4 animate-fade-in">
+              <div>
+                <label className="label flex items-center justify-between">
+                  <span>URL do Daemon (Backend)</span>
+                  <span className="text-[11px] text-gray-500">API Node.js</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={daemonUrl}
+                    onChange={e => {
+                      setUrlInput(e.target.value)
+                      setTestMessage('')
+                    }}
+                    placeholder={localEnv ? 'http://localhost:3000' : 'https://seu-tunnel.trycloudflare.com'}
+                    className="input !pl-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30 font-mono text-xs"
+                  />
+                </div>
+              </div>
+
+              {/* Presets Rápidos */}
+              <div>
+                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block mb-1.5">
+                  Atalhos Rápidos
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUrlInput('http://localhost:3000')
+                      testDaemonConnection('http://localhost:3000')
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-xs text-gray-300 transition-colors"
+                  >
+                    💻 Localhost (3000)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUrlInput('')
+                      testDaemonConnection('')
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-xs text-gray-300 transition-colors"
+                  >
+                    🔄 Padrão Relativo
+                  </button>
+                </div>
+              </div>
+
+              {/* Resultado do Teste */}
+              {testMessage && (
+                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                  connectionStatus === 'connected'
+                    ? 'bg-green-500/10 border-green-500/30 text-green-300'
+                    : 'bg-red-500/10 border-red-500/30 text-red-300'
+                }`}>
+                  {testMessage}
+                </div>
+              )}
+
+              {/* Dicas de Diagnóstico */}
+              <div className="p-3.5 bg-gray-950/80 border border-gray-800/80 rounded-xl text-[11px] text-gray-400 space-y-2">
+                <div className="flex items-center gap-1.5 text-gray-200 font-semibold">
+                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Dicas de Conexão</span>
+                </div>
+                <p>
+                  • <strong>Local:</strong> Se estiver rodando no mesmo PC do painel, deixe vazio ou use <code className="text-gray-300">http://localhost:3000</code>.
+                </p>
+                <p>
+                  • <strong>Nuvem / Netlify / Vercel:</strong> Como o painel é HTTPS, use a URL segura do Cloudflare Tunnel gerada pelo daemon (<code className="text-gray-300">https://xxx.trycloudflare.com</code>) para evitar bloqueio pelo navegador.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => testDaemonConnection()}
+                  disabled={testing}
+                  className="btn-primary flex-1 !py-2.5 !rounded-xl text-xs font-semibold flex items-center justify-center gap-2"
+                >
+                  {testing ? <Spinner size="sm" /> : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <span>Testar Conexão Agora</span>
+                    </>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    saveUrl()
+                    setTab('login')
+                  }}
+                  className="btn-secondary !py-2.5 !px-4 !rounded-xl text-xs font-semibold"
+                >
+                  Voltar
+                </button>
+              </div>
             </div>
           )}
         </div>
 
-        <p className="text-center text-xs text-gray-600 mt-6">
-          Gratuito • Rode no seu PC ou VPS • Proteção DDoS via Cloudflare
-        </p>
+        {/* Rodapé Elegante */}
+        <div className="mt-8 text-center">
+          <div className="inline-flex items-center gap-4 text-xs text-gray-500">
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              100% Gratuito & Open-Source
+            </span>
+            <span>•</span>
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+              </svg>
+              Anti-DDoS & Cloudflare
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   )

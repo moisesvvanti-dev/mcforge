@@ -9,7 +9,7 @@ const fs = require('fs');
 
 const { log, readJson, writeJson, formatBytes } = require('./utils');
 const { getConfig, updateConfig, getSystemInfo, ensureDataDirs, getPublicIp, CONFIG_FILE } = require('./config');
-const { authenticateToken, optionalAuth, adminOnly, login, listUsers, addUser, removeUser } = require('./auth');
+const { authenticateToken, optionalAuth, adminOnly, login, register, listUsers, addUser, removeUser } = require('./auth');
 const serverManager = require('./server-manager');
 const pluginManager = require('./plugin-manager');
 const worldManager = require('./world-manager');
@@ -46,11 +46,21 @@ function createApi(wss) {
 
   // ---------- Autenticação ----------
   app.post('/api/auth/login', (req, res) => {
-    const { username, password } = req.body;
+    const { username, password } = req.body || {};
     if (!password) return res.status(400).json({ error: 'Senha é obrigatória' });
-    const result = login(username || 'admin', password);
+    const result = login(username ? username.trim() : 'admin', password);
     if (!result) return res.status(401).json({ error: 'Credenciais inválidas' });
+    if (result.error) return res.status(401).json({ error: result.error });
     res.json(result);
+  });
+
+  app.post('/api/auth/register', (req, res) => {
+    const { username, password, name } = req.body || {};
+    if (!username || !username.trim()) return res.status(400).json({ error: 'Nome de usuário é obrigatório' });
+    if (!password || password.length < 6) return res.status(400).json({ error: 'A senha deve ter pelo menos 6 caracteres' });
+    const result = register(username.trim(), password, name ? name.trim() : '');
+    if (result.error) return res.status(400).json({ error: result.error });
+    res.status(201).json(result);
   });
 
   app.get('/api/auth/status', (req, res) => {
