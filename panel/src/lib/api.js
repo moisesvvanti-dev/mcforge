@@ -16,8 +16,14 @@ export function isHostedStaticPage() {
   return host.endsWith('github.io') || host.endsWith('netlify.app') || host.endsWith('vercel.app')
 }
 
-// Extrai usuário e repositório caso esteja no GitHub Pages
+// Extrai usuário e repositório configurados ou do GitHub Pages / Token
 export function getGitHubRepoInfo() {
+  const savedRepo = localStorage.getItem('mcforge_github_repo')
+  if (savedRepo && savedRepo.includes('/')) {
+    const [user, repo] = savedRepo.split('/')
+    return { user: user.trim(), repo: repo.trim() }
+  }
+
   const host = window.location.hostname
   if (host.endsWith('.github.io')) {
     const user = host.replace('.github.io', '')
@@ -25,7 +31,9 @@ export function getGitHubRepoInfo() {
     const repo = pathParts[0] || 'mcforge'
     return { user, repo }
   }
-  return { user: 'moisesvvanti-dev', repo: 'mcforge' }
+
+  const savedUser = localStorage.getItem('mcforge_github_user')
+  return { user: savedUser || 'moisesvvanti-dev', repo: 'mcforge' }
 }
 
 // Limpeza e migração automática: remove qualquer configuração localhost antiga para todos os usuários
@@ -111,11 +119,31 @@ export function setGitHubToken(token) {
 
 // Dispara o GitHub Actions em segundo plano sem sair do site
 export async function triggerGitHubWorkflow(customToken, inputs = {}) {
-  const { user, repo } = getGitHubRepoInfo()
   const token = customToken || getGitHubToken()
   if (!token) {
-    throw new Error('Token do GitHub não configurado. Adicione seu token para iniciar sem sair do painel.')
+    throw new Error('Token do GitHub não configurado. Adicione seu token Classic para iniciar sem sair do painel.')
   }
+
+  let { user, repo } = getGitHubRepoInfo()
+
+  // Auto-detecta o usuário do GitHub associado ao Token Classic (se não fixado manualmente)
+  try {
+    const userRes = await fetch('https://api.github.com/user', {
+      headers: {
+        'Accept': 'application/vnd.github+json',
+        'Authorization': `Bearer ${token.trim()}`
+      }
+    })
+    if (userRes.ok) {
+      const uData = await userRes.json()
+      if (uData && uData.login) {
+        localStorage.setItem('mcforge_github_user', uData.login)
+        if (!localStorage.getItem('mcforge_github_repo')) {
+          user = uData.login
+        }
+      }
+    }
+  } catch { }
 
   const workflowCandidates = ['minecraft-persistent.yml', 'minecraft-server.yml']
   let lastError = ''
@@ -151,10 +179,10 @@ export async function triggerGitHubWorkflow(customToken, inputs = {}) {
   }
 
   if (lastError.includes('workflow_dispatch')) {
-    throw new Error('O GitHub ainda não recebeu os arquivos mais recentes. Execute "git push" no terminal para registrar o workflow no GitHub!')
+    throw new Error(`O repositório ${user}/${repo} no GitHub ainda não recebeu os arquivos. Execute "git push" no terminal!`)
   }
 
-  throw new Error(lastError || 'Falha ao iniciar o workflow no GitHub.')
+  throw new Error(lastError || `Falha ao iniciar no repositório ${user}/${repo}.`)
 }
 
 export function getToken() {
