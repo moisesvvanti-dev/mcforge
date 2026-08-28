@@ -165,7 +165,9 @@ export default function Console({ serverId, ws, initialLogs = [] }) {
               </span>
             ) : (
               <span>
-                {line.time && <span className="text-gray-600">{line.time.slice(11, 19)} </span>}
+                {line.time && !/^\s*\[\d{2}:\d{2}:\d{2}\]/.test(line.text) && (
+                  <span className="text-gray-600 font-mono">{line.time.slice(11, 19)} </span>
+                )}
                 {line.text}
               </span>
             )}
