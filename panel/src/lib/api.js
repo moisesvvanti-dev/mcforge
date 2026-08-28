@@ -27,28 +27,29 @@ export function getGitHubRepoInfo() {
   return { user: 'moisesvvanti-dev', repo: 'mcforge' }
 }
 
+// Limpeza e migração automática: remove qualquer configuração localhost antiga para todos os usuários
+try {
+  const oldUrl = localStorage.getItem(DAEMON_URL_KEY)
+  if (oldUrl && (oldUrl.includes('localhost') || oldUrl.includes('127.0.0.1') || oldUrl.startsWith('http://'))) {
+    localStorage.removeItem(DAEMON_URL_KEY)
+  }
+} catch { }
+
 // Descobre automaticamente a URL HTTPS do Daemon ativo no GitHub Actions
 export async function autoDiscoverDaemonUrl() {
   if (discoveredBaseUrl) return discoveredBaseUrl
 
-  // Se o usuário estiver acessando diretamente pelo túnel do Cloudflare ou localhost, usa a própria origem
+  // Se o usuário estiver acessando diretamente pelo túnel do Cloudflare ou na mesma origem, usa relativo
   if (!isHostedStaticPage()) {
     discoveredBaseUrl = ''
     return ''
   }
 
-  // Tenta recuperar do localStorage
-  const saved = localStorage.getItem(DAEMON_URL_KEY)
-  if (saved && saved.startsWith('https://')) {
-    discoveredBaseUrl = normalizeUrl(saved)
-    return discoveredBaseUrl
-  }
-
-  // Busca o arquivo tunnel.json atualizado pelo GitHub Actions
+  // Busca sempre o arquivo tunnel.json mais recente do GitHub Actions
   try {
     const { user, repo } = getGitHubRepoInfo()
     const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/main/tunnel.json?t=${Date.now()}`
-    const res = await fetch(rawUrl)
+    const res = await fetch(rawUrl, { cache: 'no-store' })
     if (res.ok) {
       const data = await res.json()
       if (data && data.url && data.url.startsWith('https://')) {
@@ -58,6 +59,13 @@ export async function autoDiscoverDaemonUrl() {
       }
     }
   } catch { }
+
+  // Tenta recuperar do localStorage se for HTTPS válido
+  const saved = localStorage.getItem(DAEMON_URL_KEY)
+  if (saved && saved.startsWith('https://')) {
+    discoveredBaseUrl = normalizeUrl(saved)
+    return discoveredBaseUrl
+  }
 
   return ''
 }
@@ -123,6 +131,13 @@ async function request(path, options = {}) {
     base = await autoDiscoverDaemonUrl()
   }
 
+  // Se estiver no GitHub Pages sem túnel ativo, não faz requisição relativa (evita Erro 404 estático)
+  if (isHostedStaticPage() && !base) {
+    throw new Error(
+      'O servidor na nuvem do GitHub Actions está desligado. Inicie a Action "MCForge All-in-One" no GitHub para conectar!'
+    )
+  }
+
   const url = (base ? base.replace(/\/+$/, '') : '') + path
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
@@ -134,7 +149,7 @@ async function request(path, options = {}) {
   } catch (err) {
     if (isHostedStaticPage() && !base) {
       throw new Error(
-        'O servidor no GitHub Actions está offline ou iniciando. Inicie a Action "MCForge All-in-One" no GitHub para conectar!'
+        'O servidor na nuvem do GitHub Actions está desligado. Inicie a Action "MCForge All-in-One" no GitHub para conectar!'
       )
     }
     throw new Error(`Falha de conexão com o servidor (${url}): ${err.message}`)
@@ -151,6 +166,12 @@ async function request(path, options = {}) {
       errData = t ? JSON.parse(t) : null
     } catch { }
     throw new Error((errData && errData.error) || 'Sessão expirada ou credenciais inválidas.')
+  }
+
+  if (res.status === 404 && isHostedStaticPage() && !base) {
+    throw new Error(
+      'O servidor na nuvem do GitHub Actions está desligado. Inicie a Action no GitHub para conectar!'
+    )
   }
 
   let data = null
@@ -194,7 +215,7 @@ export const api = {
   updateServer: (id, patch) => request(`/api/servers/${id}`, {
     method: 'PUT', body: JSON.stringify(patch)
   }),
-  deleteServer: (id) => request(`/api/servers/${id}`),
+  deleteServer: (id) => request(`/api/servers/${id}`, { method: 'DELETE' }),
   startServer: (id) => request(`/api/servers/${id}/start`, { method: 'POST' }),
   stopServer: (id) => request(`/api/servers/${id}/stop`, { method: 'POST' }),
   restartServer: (id) => request(`/api/servers/${id}/restart`, { method: 'POST' }),

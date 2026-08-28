@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, setToken, setUser } from '../lib/api'
+import { api, setToken, setUser, isHostedStaticPage, getGitHubRepoInfo, setDaemonUrl, autoDiscoverDaemonUrl } from '../lib/api'
 import Spinner from '../components/Spinner'
 
 // Avaliador de força de senha
@@ -21,6 +21,8 @@ function evaluatePasswordStrength(password) {
 
 export default function Login() {
   const navigate = useNavigate()
+  const isHosted = isHostedStaticPage()
+  const repoInfo = getGitHubRepoInfo()
 
   // Tabs: 'login' | 'register'
   const [tab, setTab] = useState('login')
@@ -39,40 +41,49 @@ export default function Login() {
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [isFirstSetup, setIsFirstSetup] = useState(false)
-  const [connectionStatus, setConnectionStatus] = useState('checking') // 'checking' | 'connected' | 'error'
+  const [connectionStatus, setConnectionStatus] = useState('checking') // 'checking' | 'connected' | 'offline'
   const [pingMs, setPingMs] = useState(null)
+  const [customTunnel, setCustomTunnel] = useState('')
+  const [showManualInput, setShowManualInput] = useState(false)
 
   const passwordStrength = useMemo(() => evaluatePasswordStrength(password), [password])
   const passwordsMatch = !confirmPassword || password === confirmPassword
 
-  // Verificar status inicial do servidor em segundo plano
-  useEffect(() => {
-    let isMounted = true
-    const checkInit = async () => {
-      const start = performance.now()
-      try {
-        const [authStat] = await Promise.all([
-          api.authStatus(),
-          api.health()
-        ])
-        if (isMounted) {
-          const latency = Math.round(performance.now() - start)
-          setPingMs(latency)
-          setConnectionStatus('connected')
-          if (!authStat.initialized) {
-            setIsFirstSetup(true)
-            setTab('register')
-          }
-        }
-      } catch {
-        if (isMounted) {
-          setConnectionStatus('error')
-        }
+  // Verificar status inicial do servidor
+  const checkConnection = async () => {
+    const start = performance.now()
+    try {
+      if (isHosted) {
+        await autoDiscoverDaemonUrl()
       }
+      const [authStat] = await Promise.all([
+        api.authStatus(),
+        api.health()
+      ])
+      const latency = Math.round(performance.now() - start)
+      setPingMs(latency)
+      setConnectionStatus('connected')
+      setError('')
+      if (!authStat.initialized) {
+        setIsFirstSetup(true)
+        setTab('register')
+      }
+    } catch {
+      setConnectionStatus('offline')
+      setPingMs(null)
     }
-    checkInit()
-    return () => { isMounted = false }
-  }, [])
+  }
+
+  useEffect(() => {
+    checkConnection()
+    // Se estiver offline no GitHub Pages, tenta reconectar a cada 5s
+    const interval = setInterval(() => {
+      if (connectionStatus === 'offline' || connectionStatus === 'checking') {
+        checkConnection()
+      }
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [connectionStatus])
 
   // Limpa mensagens ao trocar de aba
   useEffect(() => {
@@ -117,7 +128,7 @@ export default function Login() {
     }
   }
 
-  // Submissão de Registro / Criação de Usuário
+  // Submissão de Registro
   const handleRegisterSubmit = async (e) => {
     e.preventDefault()
     setError('')
@@ -169,6 +180,14 @@ export default function Login() {
     }
   }
 
+  const handleApplyCustomTunnel = async (e) => {
+    e.preventDefault()
+    if (!customTunnel.trim()) return
+    setDaemonUrl(customTunnel.trim())
+    setConnectionStatus('checking')
+    await checkConnection()
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-950 relative overflow-hidden px-4 py-12 selection:bg-green-500 selection:text-black">
       {/* Background Decorativo com Malha Gradiente e Orbes Neon */}
@@ -177,7 +196,6 @@ export default function Login() {
         <div className="absolute -bottom-40 -right-40 w-[600px] h-[600px] rounded-full bg-gradient-to-tl from-cyan-600/20 to-blue-700/10 blur-[140px] animate-pulse-slow" style={{ animationDelay: '1.5s' }} />
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-emerald-950/20 blur-[160px]" />
         
-        {/* Grid de fundo sutil */}
         <div 
           className="absolute inset-0 opacity-[0.03]"
           style={{
@@ -194,7 +212,6 @@ export default function Login() {
             <div className="absolute -inset-1.5 bg-gradient-to-r from-green-500 via-emerald-400 to-cyan-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-pulse-slow" />
             <div className="relative inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gray-900 border border-green-500/30 text-white shadow-2xl overflow-hidden">
               <div className="absolute inset-0 bg-gradient-to-br from-green-500/20 to-transparent pointer-events-none" />
-              {/* Ícone de Bloco Minecraft Isométrico */}
               <svg className="w-11 h-11 text-green-400 drop-shadow-[0_0_12px_rgba(74,222,128,0.6)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
@@ -218,16 +235,72 @@ export default function Login() {
               )}
               <span className={`relative inline-flex rounded-full h-2 w-2 ${
                 connectionStatus === 'connected' ? 'bg-green-500' :
-                connectionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'
+                connectionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-red-500'
               }`} />
             </span>
             <span className="text-gray-300">
               {connectionStatus === 'connected' && (pingMs !== null ? `Servidor Conectado • ${pingMs}ms` : 'Servidor Conectado')}
               {connectionStatus === 'checking' && 'Conectando ao sistema...'}
-              {connectionStatus === 'error' && 'Pronto para Conectar'}
+              {connectionStatus === 'offline' && 'Servidor Offline na Nuvem'}
             </span>
           </div>
         </div>
+
+        {/* Card de Aviso Quando o Servidor no GitHub Actions Está Offline */}
+        {connectionStatus === 'offline' && isHosted && (
+          <div className="mb-6 bg-gray-900/95 border border-amber-500/40 rounded-3xl p-5 shadow-2xl animate-slide-up text-left">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-amber-500/20 rounded-xl text-amber-400 shrink-0 mt-0.5">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-bold text-white">Servidor Desligado no GitHub Actions</h3>
+                <p className="text-xs text-gray-300 mt-1 leading-relaxed">
+                  Para fazer login e usar seus servidores, inicie o workflow no GitHub Actions com 1 clique:
+                </p>
+
+                <div className="mt-3 flex flex-col gap-2">
+                  <a
+                    href={`https://github.com/${repoInfo.user}/${repoInfo.repo}/actions`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-primary !py-2 !px-4 text-xs font-bold text-center !rounded-xl shadow-lg shadow-green-900/30 flex items-center justify-center gap-2"
+                  >
+                    <span>▶️ Iniciar Servidor no GitHub Actions</span>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowManualInput(!showManualInput)}
+                    className="text-[11px] text-gray-400 hover:text-gray-200 text-center underline py-1"
+                  >
+                    {showManualInput ? 'Ocultar inserção manual de URL' : 'Já tem o link https://xxx.trycloudflare.com? Clique aqui'}
+                  </button>
+
+                  {showManualInput && (
+                    <form onSubmit={handleApplyCustomTunnel} className="mt-2 space-y-2 animate-fade-in">
+                      <input
+                        type="text"
+                        value={customTunnel}
+                        onChange={e => setCustomTunnel(e.target.value)}
+                        placeholder="https://seu-tunnel.trycloudflare.com"
+                        className="input !py-1.5 text-xs font-mono"
+                      />
+                      <button type="submit" className="btn-secondary w-full !py-1.5 text-xs">
+                        Conectar a este Túnel
+                      </button>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Card Principal com Glassmorphism */}
         <div className="bg-gray-900/85 backdrop-blur-xl border border-gray-800/80 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.7)] transition-all">
@@ -248,7 +321,7 @@ export default function Login() {
             </div>
           )}
 
-          {/* Navegação por Abas (Apenas Entrar e Registrar) */}
+          {/* Navegação por Abas */}
           <div className="flex bg-gray-950/70 p-1.5 rounded-2xl border border-gray-800 mb-6 gap-1">
             <button
               type="button"
@@ -377,7 +450,7 @@ export default function Login() {
 
               <button
                 type="submit"
-                disabled={loading || !password}
+                disabled={loading || !password || connectionStatus === 'offline'}
                 className="btn-primary w-full !py-3 !rounded-xl font-bold flex items-center justify-center gap-2 mt-2 transition-all active:scale-[0.99]"
               >
                 {loading ? (
@@ -545,7 +618,7 @@ export default function Login() {
 
               <button
                 type="submit"
-                disabled={loading || !username || !password || (confirmPassword && !passwordsMatch)}
+                disabled={loading || !username || !password || (confirmPassword && !passwordsMatch) || connectionStatus === 'offline'}
                 className="btn-primary w-full !py-3 !rounded-xl font-bold flex items-center justify-center gap-2 mt-2 transition-all active:scale-[0.99]"
               >
                 {loading ? (
