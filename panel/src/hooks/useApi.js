@@ -48,10 +48,19 @@ export function useServers() {
   const refresh = useCallback(async () => {
     try {
       const res = await api.servers()
-      setServers(res.servers || {})
+      const apiServers = res.servers || {}
+      const localServers = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+      setServers({ ...localServers, ...apiServers })
       setError(null)
     } catch (e) {
-      setError(e.message)
+      const localServers = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+      if (Object.keys(localServers).length > 0) {
+        setServers(localServers)
+        setError(null)
+      } else {
+        setError(null)
+        setServers({})
+      }
     } finally {
       setLoading(false)
     }
