@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, formatBytes, timeAgo, triggerGitHubWorkflow, getGitHubToken, setGitHubToken, autoDiscoverDaemonUrl } from '../lib/api'
+import { api, formatBytes, timeAgo, triggerGitHubWorkflow, getGitHubToken, setGitHubToken, autoDiscoverDaemonUrl, getGitHubRepoInfo } from '../lib/api'
 import { useApi } from '../hooks/useApi'
 import StatusBadge from '../components/StatusBadge'
 import ServerCard from '../components/ServerCard'
@@ -43,31 +43,54 @@ export default function Dashboard({ ws }) {
 
     try {
       await triggerGitHubWorkflow(token)
-      setCloudStatusText('Servidor iniciado na nuvem! Aguardando túnel seguro (~25s)...')
+      setCloudStatusText('Aguardando máquina na nuvem (~20s)...')
 
-      // Sonda em segundo plano a cada 4 segundos
+      const { user, repo } = getGitHubRepoInfo()
       let attempts = 0
       const pollInterval = setInterval(async () => {
         attempts++
+
+        // Consulta o status real da execução no GitHub Actions
         try {
-          const url = await autoDiscoverDaemonUrl()
+          const runRes = await fetch(`https://api.github.com/repos/${user}/${repo}/actions/runs?per_page=1`, {
+            headers: {
+              'Accept': 'application/vnd.github+json',
+              'Authorization': `Bearer ${token.trim()}`
+            }
+          })
+          if (runRes.ok) {
+            const rData = await runRes.json()
+            const latestRun = rData.workflow_runs?.[0]
+            if (latestRun) {
+              if (latestRun.status === 'queued') {
+                setCloudStatusText('⏳ Alocando máquina no GitHub...')
+              } else if (latestRun.status === 'in_progress') {
+                setCloudStatusText('⚙️ Inicializando Java 21 e subindo túnel...')
+              }
+            }
+          }
+        } catch { }
+
+        try {
+          const url = await autoDiscoverDaemonUrl(true)
           if (url) {
             await execute()
-            setCloudStatusText('✓ Conectado com sucesso!')
+            setCloudStatusText('🟢 Conectado com sucesso!')
             clearInterval(pollInterval)
             setTimeout(() => {
               setCloudStarting(false)
               setCloudStatusText('')
-            }, 2000)
+            }, 1500)
+            return
           }
         } catch { }
 
-        if (attempts > 30) {
+        if (attempts > 50) {
           clearInterval(pollInterval)
           setCloudStarting(false)
           setCloudStatusText('')
         }
-      }, 4000)
+      }, 3000)
     } catch (err) {
       setCloudStarting(false)
       setCloudStatusText('')
