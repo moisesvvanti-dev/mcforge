@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, formatBytes, timeAgo } from '../lib/api'
+import { api, formatBytes, timeAgo, triggerGitHubWorkflow, getGitHubToken, setGitHubToken, autoDiscoverDaemonUrl } from '../lib/api'
 import { useApi } from '../hooks/useApi'
 import StatusBadge from '../components/StatusBadge'
 import ServerCard from '../components/ServerCard'
 import Spinner from '../components/Spinner'
+import Modal from '../components/Modal'
 
 export default function Dashboard({ ws }) {
   const { data: dash, loading, error, execute } = useApi(() => api.dashboard(), [])
   const [busy, setBusy] = useState(null)
+  const [cloudStarting, setCloudStarting] = useState(false)
+  const [cloudStatusText, setCloudStatusText] = useState('')
+  const [showTokenModal, setShowTokenModal] = useState(false)
+  const [ghTokenInput, setGhTokenInput] = useState(getGitHubToken())
+  const [tokenError, setTokenError] = useState('')
 
   const handleAction = async (id, action) => {
     setBusy(id)
@@ -21,6 +27,52 @@ export default function Dashboard({ ws }) {
       alert(e.message)
     } finally {
       setBusy(null)
+    }
+  }
+
+  const handleStartCloud = async (tokenToUse = null) => {
+    const token = tokenToUse || getGitHubToken()
+    if (!token) {
+      setShowTokenModal(true)
+      return
+    }
+
+    setCloudStarting(true)
+    setCloudStatusText('Disparando servidor na nuvem do GitHub Actions...')
+    setTokenError('')
+
+    try {
+      await triggerGitHubWorkflow(token)
+      setCloudStatusText('Servidor iniciado na nuvem! Aguardando túnel seguro (~25s)...')
+
+      // Sonda em segundo plano a cada 4 segundos
+      let attempts = 0
+      const pollInterval = setInterval(async () => {
+        attempts++
+        try {
+          const url = await autoDiscoverDaemonUrl()
+          if (url) {
+            await execute()
+            setCloudStatusText('✓ Conectado com sucesso!')
+            clearInterval(pollInterval)
+            setTimeout(() => {
+              setCloudStarting(false)
+              setCloudStatusText('')
+            }, 2000)
+          }
+        } catch { }
+
+        if (attempts > 30) {
+          clearInterval(pollInterval)
+          setCloudStarting(false)
+          setCloudStatusText('')
+        }
+      }, 4000)
+    } catch (err) {
+      setCloudStarting(false)
+      setCloudStatusText('')
+      setTokenError(err.message)
+      setShowTokenModal(true)
     }
   }
 
@@ -87,18 +139,23 @@ export default function Dashboard({ ws }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 w-full md:w-auto">
-            <a
-              href="https://github.com/moisesvvanti-dev/mcforge/actions"
-              target="_blank"
-              rel="noreferrer"
-              className="btn-primary w-full md:w-auto !py-2.5 !px-5 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/30"
-            >
-              <span>▶️ Ligar Servidor na Nuvem (GitHub)</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
+          <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
+            {cloudStarting ? (
+              <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-semibold">
+                <Spinner size="sm" />
+                <span>{cloudStatusText}</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleStartCloud()}
+                className="btn-primary w-full md:w-auto !py-2.5 !px-5 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/30 active:scale-[0.98]"
+              >
+                <span>🚀 Ligar Servidores na Nuvem (1 Clique)</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -270,6 +327,72 @@ export default function Dashboard({ ws }) {
           </div>
         </div>
       </div>
+
+      {/* Modal para Iniciar na Nuvem Automaticamente via Token */}
+      <Modal open={showTokenModal} onClose={() => setShowTokenModal(false)} title="🔑 Ativação Automática no GitHub (1 Clique)">
+        <div className="space-y-4">
+          <p className="text-xs text-gray-300 leading-relaxed">
+            Para iniciar os servidores na nuvem <strong>sem precisar abrir o GitHub</strong>, informe seu Token de Acesso Pessoal (PAT) do GitHub:
+          </p>
+
+          <div>
+            <label className="label">GitHub Personal Access Token (PAT)</label>
+            <input
+              type="password"
+              value={ghTokenInput}
+              onChange={e => setGhTokenInput(e.target.value)}
+              placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
+              className="input text-xs font-mono"
+            />
+            <div className="mt-1 flex items-center justify-between text-[11px] text-gray-500">
+              <span>Permissão necessária: <code className="text-green-400">actions:write</code> ou <code className="text-green-400">repo</code></span>
+              <a
+                href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=MCForge+Cloud+Trigger"
+                target="_blank"
+                rel="noreferrer"
+                className="text-green-400 hover:underline"
+              >
+                Gerar Token Rápido ↗
+              </a>
+            </div>
+          </div>
+
+          {tokenError && (
+            <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-400">
+              {tokenError}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t border-gray-800">
+            <a
+              href="https://github.com/moisesvvanti-dev/mcforge/actions"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-gray-400 hover:text-white"
+            >
+              Ou iniciar manualmente no GitHub ↗
+            </a>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button onClick={() => setShowTokenModal(false)} className="btn-secondary text-xs">
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  if (!ghTokenInput.trim()) return
+                  setGitHubToken(ghTokenInput.trim())
+                  setShowTokenModal(false)
+                  handleStartCloud(ghTokenInput.trim())
+                }}
+                disabled={!ghTokenInput.trim()}
+                className="btn-primary text-xs font-bold"
+              >
+                Salvar & Ligar Servidor 🚀
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
