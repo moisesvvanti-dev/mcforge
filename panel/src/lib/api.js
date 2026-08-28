@@ -161,11 +161,31 @@ export function normalizeUrl(url) {
   return u
 }
 
+export function getWsUrl() {
+  const token = getToken()
+  const base = getBase()
+  
+  if (base) {
+    let clean = base.replace(/^https?:\/\//i, '').replace(/\/+$/, '')
+    const wsProto = base.startsWith('https:') ? 'wss:' : 'ws:'
+    return `${wsProto}//${clean}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  }
+
+  if (typeof window !== 'undefined' && window.location.host) {
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${wsProto}//${window.location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  }
+
+  return ''
+}
+
 export function setDaemonUrl(url) {
   const normalized = normalizeUrl(url)
   discoveredBaseUrl = normalized
   if (normalized) localStorage.setItem(DAEMON_URL_KEY, normalized)
   else localStorage.removeItem(DAEMON_URL_KEY)
+  // Notifica componentes para reconectar WebSocket
+  window.dispatchEvent(new CustomEvent('daemon_url_changed', { detail: normalized }))
 }
 
 export function getGitHubToken() {
@@ -494,21 +514,6 @@ async function uploadFile(path, file) {
     throw new Error((data && data.error) || `Erro ${res.status}`)
   }
   return data
-}
-
-// ---------- WebSocket Seguro (WSS / WS) ----------
-export function getWsUrl() {
-  const base = getBase()
-  let host, proto
-  if (base) {
-    const parsed = new URL(base)
-    host = parsed.host
-    proto = parsed.protocol === 'https:' ? 'wss' : 'ws'
-  } else {
-    host = window.location.host
-    proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  }
-  return `${proto}://${host}/ws?token=${encodeURIComponent(getToken() || '')}`
 }
 
 // ---------- Helpers ----------

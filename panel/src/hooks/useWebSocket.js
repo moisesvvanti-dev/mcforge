@@ -160,12 +160,16 @@ export function useWebSocket(serverId = null) {
     delete handlersRef.current[event]
   }, [])
 
-  // Conectar na montagem
+  // Conectar na montagem e quando a URL do daemon mudar
   useEffect(() => {
-    // Pequeno delay para garantir que o token está pronto
-    const timer = setTimeout(() => connect(), 1000)
+    const timer = setTimeout(() => connect(), 300)
+    const onUrlChange = () => {
+      connect()
+    }
+    window.addEventListener('daemon_url_changed', onUrlChange)
     return () => {
       clearTimeout(timer)
+      window.removeEventListener('daemon_url_changed', onUrlChange)
       disconnect()
     }
   }, [connect, disconnect])
