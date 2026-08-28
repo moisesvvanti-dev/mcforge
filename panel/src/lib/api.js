@@ -45,8 +45,8 @@ try {
 } catch { }
 
 // Descobre automaticamente a URL HTTPS do Daemon ativo no GitHub Actions
-export async function autoDiscoverDaemonUrl() {
-  if (discoveredBaseUrl) return discoveredBaseUrl
+export async function autoDiscoverDaemonUrl(force = false) {
+  if (discoveredBaseUrl && !force) return discoveredBaseUrl
 
   // Se o usuário estiver acessando diretamente pelo túnel do Cloudflare ou na mesma origem, usa relativo
   if (!isHostedStaticPage()) {
@@ -72,6 +72,12 @@ export async function autoDiscoverDaemonUrl() {
       }
     }
   } catch { }
+
+  if (force) {
+    discoveredBaseUrl = null
+    localStorage.removeItem(DAEMON_URL_KEY)
+    return ''
+  }
 
   // Tenta recuperar do localStorage se for HTTPS válido
   const saved = localStorage.getItem(DAEMON_URL_KEY)
@@ -263,12 +269,21 @@ async function request(path, options = {}) {
   try {
     res = await fetch(url, { ...options, headers })
   } catch (err) {
-    if (isHostedStaticPage() && !base) {
+    // Se o túnel antigo expirou (Failed to fetch), força a busca do novo túnel ativo no GitHub
+    if (isHostedStaticPage()) {
+      const freshBase = await autoDiscoverDaemonUrl(true)
+      if (freshBase && freshBase !== base) {
+        const retryUrl = freshBase.replace(/\/+$/, '') + path
+        try {
+          res = await fetch(retryUrl, { ...options, headers })
+        } catch { }
+      }
+    }
+    if (!res) {
       throw new Error(
-        'O servidor na nuvem do GitHub Actions está desligado. Inicie a Action "MCForge All-in-One" no GitHub para conectar!'
+        'O servidor na nuvem ainda não está online ou está iniciando. Aguarde alguns segundos enquanto o túnel conecta.'
       )
     }
-    throw new Error(`Falha de conexão com o servidor (${url}): ${err.message}`)
   }
 
   if (res.status === 401) {
