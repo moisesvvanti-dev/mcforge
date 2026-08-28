@@ -43,7 +43,6 @@ function AppShell() {
         <Route path="/servers" element={<Servers ws={ws} />} />
         <Route path="/servers/new" element={<NewServer />} />
         <Route path="/servers/:id" element={<ServerDetail ws={ws} />} />
-        <Route path="/network" element={<Network ws={ws} />} />
         <Route path="/security" element={<Security ws={ws} />} />
         <Route path="/settings" element={<Settings ws={ws} />} />
         <Route path="*" element={<Navigate to="/" replace />} />

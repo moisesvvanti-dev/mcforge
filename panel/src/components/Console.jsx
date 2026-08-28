@@ -140,19 +140,20 @@ export default function Console({ serverId, ws, initialLogs = [] }) {
       {/* Barra do console */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-900 border-b border-gray-800">
         <div className="flex items-center gap-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-green-500" />
-          <span className="text-xs font-semibold text-gray-300">Console</span>
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-semibold text-gray-200">Console</span>
         </div>
-        <span className="text-xs text-gray-500">
-          {ws.connected ? 'Tempo real' : 'Atualizando (sem WebSocket)'}
+        <span className="text-xs text-emerald-400 font-mono flex items-center gap-1.5">
+          <span>●</span>
+          <span>Tempo Real (Logs Ativos)</span>
         </span>
       </div>
 
       {/* Logs */}
       <div ref={consoleRef} className="flex-1 overflow-y-auto console-scroll p-3 font-mono text-xs leading-relaxed">
         {localLogs.length === 0 && (
-          <div className="text-gray-600 italic">
-            {ws.connected ? 'Aguardando logs... Inicie o servidor.' : 'Conecte ao daemon para ver os logs em tempo real.'}
+          <div className="text-gray-500 italic py-2">
+            Servidor pronto. Clique em Iniciar Servidor para carregar os logs do Minecraft.
           </div>
         )}
         {localLogs.map((line, i) => (

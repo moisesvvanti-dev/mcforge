@@ -29,6 +29,46 @@ function createApi(wss) {
     next();
   });
 
+  // ---------- Proteção Anti-DDoS / Anti-DoS & Bad Bots Nativa via Código Puro ----------
+  const ipRequestTracker = new Map();
+  const bannedIps = new Set();
+
+  app.use((req, res, next) => {
+    const ip = req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+    
+    // 1. Bloqueio de IP banido por excesso de requisições
+    if (bannedIps.has(ip)) {
+      return res.status(429).json({ error: 'Acesso bloqueado temporariamente por atividade suspeita (Anti-DDoS).' });
+    }
+
+    // 2. Filtro contra Bad Bots e Scrapers maliciosos
+    const ua = (req.headers['user-agent'] || '').toLowerCase();
+    const badBots = ['sqlmap', 'nikto', 'nmap', 'masscan', 'gobuster', 'dirbuster', 'zgrab', 'censys'];
+    if (badBots.some(bot => ua.includes(bot))) {
+      log('warn', `[Anti-Bot Shield] Bloqueado bot malicioso (${ua}) do IP: ${ip}`);
+      return res.status(403).json({ error: 'Acesso negado por proteção Anti-Bot nativa.' });
+    }
+
+    // 3. Sliding Window Rate Limiter por segundo (Anti-Flood / DoS)
+    const now = Date.now();
+    const tracker = ipRequestTracker.get(ip) || { count: 0, resetAt: now + 1000 };
+    if (now > tracker.resetAt) {
+      tracker.count = 1;
+      tracker.resetAt = now + 1000;
+    } else {
+      tracker.count++;
+      if (tracker.count > 60) {
+        log('warn', `[Anti-DDoS Shield] Detectado flood de ${ip} (${tracker.count} req/s). Bloqueando.`);
+        bannedIps.add(ip);
+        setTimeout(() => bannedIps.delete(ip), 30000);
+        return res.status(429).json({ error: 'Taxa de requisições excedida. IP temporariamente bloqueado por proteção Anti-DoS.' });
+      }
+    }
+    ipRequestTracker.set(ip, tracker);
+
+    next();
+  });
+
   // Rate limit global
   app.use('/api', rateLimit({
     windowMs: 60 * 1000,
