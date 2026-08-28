@@ -63,35 +63,81 @@ async function listPurpurVersions() {
 
 async function listForgeVersions() {
   return [
+    { id: '1.21.4', type: 'forge' },
+    { id: '1.21.3', type: 'forge' },
     { id: '1.21.1', type: 'forge' },
+    { id: '1.21', type: 'forge' },
+    { id: '1.20.6', type: 'forge' },
     { id: '1.20.4', type: 'forge' },
+    { id: '1.20.2', type: 'forge' },
     { id: '1.20.1', type: 'forge' },
+    { id: '1.20', type: 'forge' },
+    { id: '1.19.4', type: 'forge' },
+    { id: '1.19.3', type: 'forge' },
     { id: '1.19.2', type: 'forge' },
+    { id: '1.19.1', type: 'forge' },
+    { id: '1.19', type: 'forge' },
     { id: '1.18.2', type: 'forge' },
+    { id: '1.18.1', type: 'forge' },
+    { id: '1.18', type: 'forge' },
+    { id: '1.17.1', type: 'forge' },
     { id: '1.16.5', type: 'forge' },
+    { id: '1.16.4', type: 'forge' },
+    { id: '1.16.3', type: 'forge' },
+    { id: '1.16.2', type: 'forge' },
+    { id: '1.16.1', type: 'forge' },
+    { id: '1.15.2', type: 'forge' },
+    { id: '1.14.4', type: 'forge' },
+    { id: '1.13.2', type: 'forge' },
     { id: '1.12.2', type: 'forge' },
+    { id: '1.12.1', type: 'forge' },
+    { id: '1.12', type: 'forge' },
+    { id: '1.11.2', type: 'forge' },
+    { id: '1.10.2', type: 'forge' },
+    { id: '1.9.4', type: 'forge' },
     { id: '1.8.9', type: 'forge' },
-    { id: '1.7.10', type: 'forge' }
+    { id: '1.8.8', type: 'forge' },
+    { id: '1.8', type: 'forge' },
+    { id: '1.7.10', type: 'forge' },
+    { id: '1.7.2', type: 'forge' },
+    { id: '1.6.4', type: 'forge' },
+    { id: '1.5.2', type: 'forge' }
   ];
 }
 
 async function listFabricVersions() {
-  try {
-    const gameData = await fetchJson(`${FABRIC_META}/versions/game`);
-    const games = gameData.filter(g => g.stable).map(g => g.version);
-    return games.map(v => ({ id: v, type: 'fabric' }));
-  } catch {
-    return [
-      { id: '1.21.4', type: 'fabric' },
-      { id: '1.21.1', type: 'fabric' },
-      { id: '1.20.4', type: 'fabric' },
-      { id: '1.20.1', type: 'fabric' },
-      { id: '1.19.4', type: 'fabric' },
-      { id: '1.18.2', type: 'fabric' },
-      { id: '1.16.5', type: 'fabric' },
-      { id: '1.8.9', type: 'fabric' }
-    ];
-  }
+  return [
+    { id: '1.21.4', type: 'fabric' },
+    { id: '1.21.3', type: 'fabric' },
+    { id: '1.21.2', type: 'fabric' },
+    { id: '1.21.1', type: 'fabric' },
+    { id: '1.21', type: 'fabric' },
+    { id: '1.20.6', type: 'fabric' },
+    { id: '1.20.5', type: 'fabric' },
+    { id: '1.20.4', type: 'fabric' },
+    { id: '1.20.3', type: 'fabric' },
+    { id: '1.20.2', type: 'fabric' },
+    { id: '1.20.1', type: 'fabric' },
+    { id: '1.20', type: 'fabric' },
+    { id: '1.19.4', type: 'fabric' },
+    { id: '1.19.3', type: 'fabric' },
+    { id: '1.19.2', type: 'fabric' },
+    { id: '1.19.1', type: 'fabric' },
+    { id: '1.19', type: 'fabric' },
+    { id: '1.18.2', type: 'fabric' },
+    { id: '1.18.1', type: 'fabric' },
+    { id: '1.18', type: 'fabric' },
+    { id: '1.17.1', type: 'fabric' },
+    { id: '1.17', type: 'fabric' },
+    { id: '1.16.5', type: 'fabric' },
+    { id: '1.16.4', type: 'fabric' },
+    { id: '1.16.3', type: 'fabric' },
+    { id: '1.16.2', type: 'fabric' },
+    { id: '1.16.1', type: 'fabric' },
+    { id: '1.15.2', type: 'fabric' },
+    { id: '1.14.4', type: 'fabric' },
+    { id: '1.8.9', type: 'fabric' }
+  ];
 }
 
 async function listBDSVersions() {
@@ -137,7 +183,6 @@ async function downloadServer(type, version, destDir) {
         url = pUrl;
         fileName = pName;
       } catch {
-        // Fallback Vanilla se Paper não tiver build para versão antiga
         const manifest = await fetchJson(VANILLA_MANIFEST);
         const target = manifest.versions.find(v => v.id === version);
         if (target) {
@@ -157,15 +202,45 @@ async function downloadServer(type, version, destDir) {
     }
     case 'forge': {
       const forgeMap = {
-        '1.8.9': '1.8.9-11.15.1.2318-1.8.9',
-        '1.7.10': '1.7.10-10.13.4.1614-1.7.10',
-        '1.12.2': '1.12.2-14.23.5.2860',
-        '1.16.5': '1.16.5-36.2.39',
-        '1.18.2': '1.18.2-40.2.14',
-        '1.19.2': '1.19.2-43.3.0',
-        '1.20.1': '1.20.1-47.3.0',
+        '1.21.4': '1.21.4-54.0.0',
+        '1.21.3': '1.21.3-53.0.0',
+        '1.21.1': '1.21.1-52.0.0',
+        '1.21': '1.21-51.0.0',
+        '1.20.6': '1.20.6-50.1.0',
         '1.20.4': '1.20.4-49.0.38',
-        '1.21.1': '1.21.1-52.0.0'
+        '1.20.2': '1.20.2-48.1.0',
+        '1.20.1': '1.20.1-47.3.0',
+        '1.20': '1.20-46.0.14',
+        '1.19.4': '1.19.4-45.2.0',
+        '1.19.3': '1.19.3-44.1.0',
+        '1.19.2': '1.19.2-43.3.0',
+        '1.19.1': '1.19.1-42.0.9',
+        '1.19': '1.19-41.1.0',
+        '1.18.2': '1.18.2-40.2.14',
+        '1.18.1': '1.18.1-39.1.0',
+        '1.18': '1.18-38.0.17',
+        '1.17.1': '1.17.1-37.1.1',
+        '1.16.5': '1.16.5-36.2.39',
+        '1.16.4': '1.16.4-35.1.37',
+        '1.16.3': '1.16.3-34.1.42',
+        '1.16.2': '1.16.2-33.0.61',
+        '1.16.1': '1.16.1-32.0.108',
+        '1.15.2': '1.15.2-31.2.57',
+        '1.14.4': '1.14.4-28.2.26',
+        '1.13.2': '1.13.2-25.0.223',
+        '1.12.2': '1.12.2-14.23.5.2860',
+        '1.12.1': '1.12.1-14.22.1.2485',
+        '1.12': '1.12-14.21.1.2443',
+        '1.11.2': '1.11.2-13.20.1.2588',
+        '1.10.2': '1.10.2-12.18.3.2511',
+        '1.9.4': '1.9.4-12.17.0.2051',
+        '1.8.9': '1.8.9-11.15.1.2318-1.8.9',
+        '1.8.8': '1.8.8-11.14.4.1563',
+        '1.8': '1.8-11.14.4.1563',
+        '1.7.10': '1.7.10-10.13.4.1614-1.7.10',
+        '1.7.2': '1.7.2-10.12.2.1147',
+        '1.6.4': '1.6.4-9.11.1.1345',
+        '1.5.2': '1.5.2-7.8.1.737'
       };
       const forgeVer = forgeMap[version] || version;
       url = `https://maven.minecraftforge.net/net/minecraftforge/forge/${forgeVer}/forge-${forgeVer}-installer.jar`;
