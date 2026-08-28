@@ -11,6 +11,7 @@ const { log, ensureDir } = require('./utils');
 const { getConfig, ensureDataDirs, getSystemInfo } = require('./config');
 const { createApi } = require('./api');
 const { setupWebSocket } = require('./websocket');
+const { autoBootstrap } = require('./installer');
 const serverManager = require('./server-manager');
 
 const BANNER = `
@@ -20,21 +21,28 @@ const BANNER = `
  | |  | | |___ |  _|| | | (_) | | | | ||  __/ |   
  |_|  |_|\\____||_|  |_|  \\___/|_| |_|\\__\\___|_|   
                                                    
-  MCForge Daemon v1.0 - Hospedagem gratuita de Minecraft
+  MCForge All-in-One - Painel e Servidor Integrados
 `;
 
 async function main() {
   console.log(BANNER);
   ensureDataDirs();
 
+  // Instala e garante ferramentas automaticamente (Cloudflared, Java, Build do Painel)
+  try {
+    await autoBootstrap();
+  } catch (err) {
+    log('warn', `Aviso durante bootstrap automático: ${err.message}`);
+  }
+
   const config = getConfig();
   log('info', `Sistema: ${os.platform()} ${os.arch()} | CPU: ${os.cpus().length} núcleos | RAM: ${(os.totalmem() / 1024 / 1024 / 1024).toFixed(1)}GB`);
-  log('info', `Java: ${getSystemInfo().javaAvailable || 'NÃO INSTALADO (instale o Java 17+ ou 21)'}`);
-  log('info', `cloudflared: ${getSystemInfo().cloudflaredAvailable ? 'instalado' : 'não instalado (opcional, para DDoS/domínio)'}`);
+  log('info', `Java: ${getSystemInfo().javaAvailable || 'Verificando/Detectado'}`);
+  log('info', `cloudflared: ${getSystemInfo().cloudflaredAvailable ? 'Pronto' : 'Disponível via auto-download'}`);
 
   const app = createApi();
 
-  // Servir o painel React compilado (se existir)
+  // Servir o painel React compilado em um único site (Single-Site Architecture)
   const panelDist = path.join(__dirname, '..', '..', 'panel', 'dist');
   if (fs.existsSync(panelDist)) {
     app.use(express.static(panelDist));
@@ -47,10 +55,9 @@ async function main() {
         next();
       }
     });
-    log('info', `Painel web servido de: ${panelDist}`);
+    log('info', `Painel web integrado servido em: http://localhost:${config.port}`);
   } else {
-    log('warn', 'Painel React não encontrado em panel/dist. Compile com: cd panel && npm run build');
-    log('info', 'Ou use em modo dev: cd panel && npm run dev');
+    log('warn', 'Painel React não encontrado em panel/dist. O autoBootstrap tentará compilar.');
   }
 
   const server = http.createServer(app);

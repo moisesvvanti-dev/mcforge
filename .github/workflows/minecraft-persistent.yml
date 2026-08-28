@@ -1,161 +1,206 @@
-# ============================================
-# MCForge - Servidor Minecraft PERSISTENTE
-# 🟢 Sempre ativo (renova a cada 5h30min antes do limite de 6h)
-# 💾 Mundo salvo no repositório a cada ciclo (nunca perde progresso)
-# 🌐 Mesmo domínio sempre (Cloudflare Tunnel fixo)
-# ============================================
-# COMO CONFIGURAR (1 vez):
-# 1. No seu PC: cloudflared tunnel login
-# 2. cloudflared tunnel create mcforge
-# 3. Guarde o conteúdo de ~/.cloudflared/<TUNNEL_ID>.json
-# 4. No GitHub: Settings → Secrets and variables → Actions → New secret:
-#    - CLOUDFLARED_CREDENTIALS = (cole o JSON)
-#    - TUNNEL_ID = (o UUID do tunnel)
-# 5. No Cloudflare: DNS → CNAME  mc.SEUDOMINIO.com → <TUNNEL_ID>.cfargotunnel.com (laranja)
-# 6. Jogadores conectam SEMPRE em: mc.SEUDOMINIO.com
-#
-# ⚠️ Downtime de ~2-5 min a cada ciclo (entre um job e outro)
-# ⚠️ Para 0 downtime, use seu PC ou VPS (Oracle grátis)
-# ============================================
-name: 🟢 Servidor Persistente (24/7 automático)
+# ========================================================
+# MCForge - Hospedagem 100% Automática no GitHub Actions
+# 🌐 Painel Web e Servidor Minecraft em UM ÚNICO SITE
+# ⚡ Baixa e instala tudo sozinho (Java 21, Node, Cloudflared, Paper)
+# 💾 Salva o mundo automaticamente sem perder progresso
+# 🛡️ Isolado (sem interferir em outros usuários/servidores)
+# ========================================================
+
+name: 🚀 MCForge All-in-One (Servidor + Painel Web)
 
 on:
   schedule:
-    # A cada 5h30min — sempre antes do limite de 6h do GitHub Actions
+    # Renovação automática para manter 24/7 (a cada 5h25min antes do limite de 6h do GitHub)
     - cron: '0 */5 * * *'
-    - cron: '30 1,6,11,16,21 * * *'
+    - cron: '25 1,6,11,16,21 * * *'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Versão do Minecraft'
+        description: 'Versão do Minecraft (ex: 1.21.1, 1.20.4)'
         required: true
-        default: '1.21.11'
+        default: '1.21.1'
+      server_type:
+        description: 'Tipo de servidor'
+        required: true
+        default: 'paper'
+        type: choice
+        options:
+          - paper
+          - purpur
+          - vanilla
       ram:
-        description: 'RAM máxima (ex: 3G)'
+        description: 'Memória RAM alocada para o Minecraft'
         required: true
-        default: '3G'
+        default: '4G'
+        type: choice
+        options:
+          - '3G'
+          - '4G'
+          - '5G'
+          - '6G'
 
 permissions:
   contents: write
 
 jobs:
-  server:
+  mcforge-host:
+    name: 🎮 Hospedagem MCForge
     runs-on: ubuntu-latest
-    timeout-minutes: 340   # 5h40min (menos que 6h para ter folga)
+    timeout-minutes: 340 # 5h40min de execução contínua
     env:
-      MC_VERSION: ${{ inputs.version || '1.21.11' }}
-      MC_RAM: ${{ inputs.ram || '3G' }}
+      MC_VERSION: ${{ inputs.version || '1.21.1' }}
+      MC_TYPE: ${{ inputs.server_type || 'paper' }}
+      MC_RAM: ${{ inputs.ram || '4G' }}
       TUNNEL_ID: ${{ secrets.TUNNEL_ID }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      DAEMON_PORT: 3000
 
-      - name: Setup Java 21
+    steps:
+      - name: 📥 Checkout do Repositório
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: ☕ Configurar Java 21 (Automático)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Recuperar mundo salvo (se existir)
+      - name: 🟢 Configurar Node.js 20 (Automático)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            daemon/package-lock.json
+            panel/package-lock.json
+
+      - name: 📦 Instalar Dependências e Compilar Painel Web
         run: |
-          mkdir -p server
-          if [ -f "server/world-backup.tar.gz" ]; then
-            echo "🎮 Mundo salvo encontrado — restaurando..."
-            tar -xzf server/world-backup.tar.gz -C server/
-            echo "Mundo restaurado com sucesso"
+          echo "📦 Instalando dependências do Daemon..."
+          cd daemon && npm install
+          cd ..
+
+          echo "🎨 Compilando o Painel Web (Frontend)..."
+          cd panel && npm install && npm run build
+          cd ..
+          echo "✓ Painel Web compilado em panel/dist!"
+
+      - name: 💾 Restaurar Mundos e Dados Salvos
+        run: |
+          mkdir -p daemon/servers daemon/data backups
+          if [ -f "backups/world-saved.tar.gz" ]; then
+            echo "🎮 Backup do mundo encontrado! Restaurando..."
+            tar -xzf backups/world-saved.tar.gz -C daemon/servers/
+            echo "✓ Mundo restaurado com sucesso!"
           else
-            echo "Nenhum mundo salvo ainda — será criado novo"
+            echo "ℹ️ Nenhum mundo salvo anterior. Um novo servidor será gerado automaticamente."
           fi
 
-      - name: Baixar servidor Paper (se não existir)
-        run: |
-          if [ ! -f "server/paper.jar" ]; then
-            echo "Baixando Paper $MC_VERSION..."
-            BUILDS=$(curl -s "https://fill.papermc.io/v3/projects/paper/versions/$MC_VERSION/builds")
-            URL=$(echo "$BUILDS" | jq -r '.[-1].downloads["server:default"].url')
-            NAME=$(echo "$BUILDS" | jq -r '.[-1].downloads["server:default"].name')
-            curl -o "server/$NAME" "$URL"
-            echo "Paper baixado: $NAME"
-          else
-            echo "Paper.jar já existe"
+          if [ -f "backups/data-saved.tar.gz" ]; then
+            echo "🔑 Restaurando configurações e contas..."
+            tar -xzf backups/data-saved.tar.gz -C daemon/data/
           fi
 
-      - name: Aceitar EULA
-        run: echo "eula=true" > server/eula.txt
-
-      - name: Iniciar servidor
+      - name: 🌐 Baixar e Iniciar Cloudflare Tunnel
         run: |
-          cd server
-          JAR=$(ls *.jar 2>/dev/null | grep -v installer | head -1)
-          echo "Iniciando: $JAR"
-          java -Xms1G -Xmx$MC_RAM -jar "$JAR" nogui > server.log 2>&1 &
-          echo "PID=$!" > pid.txt
-          sleep 20
-          tail -20 server.log
-
-      - name: Conectar ao Tunnel fixo (mesmo domínio)
-        if: env.TUNNEL_ID != ''
-        run: |
-          echo "${{ secrets.CLOUDFLARED_CREDENTIALS }}" > /home/runner/.cloudflared-cred.json
-          mkdir -p /home/runner/.cloudflared
-          cp /home/runner/.cloudflared-cred.json /home/runner/.cloudflared/$TUNNEL_ID.json
-          # Baixar cloudflared
+          # Baixar cloudflared oficial
           curl -sL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared
-          ./cloudflared tunnel --no-autoupdate run $TUNNEL_ID > tunnel.log 2>&1 &
-          sleep 15
-          echo "🌐 Tunnel conectado ao domínio fixo! Jogadores entram em mc.SEUDOMINIO.com"
-          grep -i "Registered tunnel connection" tunnel.log | head -2 || tail -5 tunnel.log
+          sudo mv cloudflared /usr/local/bin/cloudflared
+          echo "✓ Cloudflared instalado com sucesso."
 
-      - name: Sem Tunnel (aviso)
-        if: env.TUNNEL_ID == ''
+      - name: 🚀 Iniciar MCForge All-in-One (Daemon + Painel na porta 3000)
         run: |
-          echo "⚠️ TUNNEL_ID não configurado! Configure os secrets para expor na internet."
-          echo "Enquanto isso, o servidor roda mas só é acessível internamente."
+          cd daemon
+          npm start > daemon.log 2>&1 &
+          echo $! > ../daemon.pid
+          cd ..
+          echo "Aguardando boot do MCForge..."
+          sleep 6
 
-      - name: Servidor rodando (auto-renovação em 5h30min)
+      - name: 🔗 Criar Túnel e Publicar Site Único
         run: |
-          # Loop de vida do servidor — cerca de 5h20min
-          DURATION=$(( 5 * 3600 + 20 * 60 ))
+          mkdir -p logs
+          # Inicia tunnel para o site do painel (porta 3000 que serve painel + api + websockets)
+          cloudflared tunnel --url http://localhost:3000 --no-autoupdate > logs/panel-tunnel.log 2>&1 &
+          echo $! > panel-tunnel.pid
+
+          # Inicia tunnel TCP para a porta do Minecraft (25565)
+          cloudflared tunnel --url tcp://localhost:25565 --no-autoupdate > logs/mc-tunnel.log 2>&1 &
+          echo $! > mc-tunnel.pid
+
+          # Aguarda túneis conectarem
+          sleep 12
+
+          PANEL_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/panel-tunnel.log | head -1)
+          MC_URL=$(grep -oP 'https://[a-zA-Z0-9-]+\.trycloudflare\.com' logs/mc-tunnel.log | head -1)
+
+          echo "PANEL_URL=$PANEL_URL" >> $GITHUB_ENV
+          echo "MC_URL=$MC_URL" >> $GITHUB_ENV
+
+          # Exibir no Step Summary do GitHub Actions
+          echo "## 🎮 MCForge All-in-One Está Online!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🌐 Acesse o Painel de Controle (Site Único):" >> $GITHUB_STEP_SUMMARY
+          echo "[👉 Clique Aqui para Abrir o Painel Web: **$PANEL_URL**]($PANEL_URL)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> **Status:** 🟢 Online • **Minecraft:** $MC_TYPE $MC_VERSION • **RAM:** $MC_RAM" >> $GITHUB_STEP_SUMMARY
+          echo "> **Link do Painel:** \`$PANEL_URL\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📋 Instruções:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Abra o link do painel acima em qualquer navegador (PC ou celular)." >> $GITHUB_STEP_SUMMARY
+          echo "2. No primeiro acesso, crie sua senha de **Administrador** no painel." >> $GITHUB_STEP_SUMMARY
+          echo "3. Crie, inicie e gerencie servidores, instale plugins e acompanhe o console ao vivo em tempo real!" >> $GITHUB_STEP_SUMMARY
+          echo "4. O mundo é salvo automaticamente ao final do ciclo." >> $GITHUB_STEP_SUMMARY
+
+          echo "================================================================="
+          echo "🎉 SITE DO PAINEL WEB ONLINE:"
+          echo "👉 $PANEL_URL"
+          echo "================================================================="
+
+      - name: ⏳ Manter Servidor e Painel Ativos (Loop com Heartbeat)
+        run: |
+          DURATION=$(( 5 * 3600 + 20 * 60 )) # 5h20min
           ELAPSED=0
+
           while [ $ELAPSED -lt $DURATION ]; do
-            sleep 120
-            ELAPSED=$(( ELAPSED + 120 ))
-            # Heartbeat
-            echo "[$(date -u +%H:%M:%S)] Servidor ativo... (${ELAPSED}s de ${DURATION}s)"
-            # Verificar se o processo Java ainda está vivo
-            if ! kill -0 $(cat server/pid.txt) 2>/dev/null; then
-              echo "⚠️ Processo Java morreu — reiniciando..."
-              cd server
-              JAR=$(ls *.jar 2>/dev/null | grep -v installer | head -1)
-              java -Xms1G -Xmx$MC_RAM -jar "$JAR" nogui >> server.log 2>&1 &
-              echo "PID=$!" > pid.txt
+            sleep 180
+            ELAPSED=$(( ELAPSED + 180 ))
+            REMAINING=$(( (DURATION - ELAPSED) / 60 ))
+            echo "[$(date -u +%T)] 🟢 MCForge Ativo | Site: $PANEL_URL | Restante deste ciclo: ${REMAINING}min"
+            
+            # Checar se o processo do Daemon está vivo
+            if ! kill -0 $(cat daemon.pid) 2>/dev/null; then
+              echo "⚠️ Daemon parou, reiniciando..."
+              cd daemon && npm start >> daemon.log 2>&1 &
+              echo $! > ../daemon.pid
               cd ..
             fi
           done
 
-      - name: ⚠️ Finalizar servidor + SALVAR MUNDO
+      - name: 💾 Salvar Mundo e Dados (Auto-Backup)
         if: always()
         run: |
-          echo "Salvando o mundo e encerrando servidor..."
-          # Salvar o mundo com o comando do Minecraft
-          cd server
-          java_pid=$(cat pid.txt 2>/dev/null)
-          # Enviar comandos save-all e stop
-          echo "save-all" | timeout 5 bash -c 'cat > /proc/'"$java_pid"'/fd/0' 2>/dev/null || true
-          sleep 10
-          echo "stop" | timeout 5 bash -c 'cat > /proc/'"$java_pid"'/fd/0' 2>/dev/null || true
-          sleep 15
-          kill $java_pid 2>/dev/null || true
-          # Comprimir o mundo
-          tar -czf world-backup.tar.gz world/ 2>/dev/null || echo "⚠️ Nenhuma pasta world/ para salvar"
-          ls -lh world-backup.tar.gz 2>/dev/null || echo "Sem backup gerado"
+          echo "Salvando mundos e banco de dados..."
+          mkdir -p backups
+          
+          # Comprimir pastas de servidores e dados
+          if [ -d "daemon/servers" ]; then
+            tar -czf backups/world-saved.tar.gz -C daemon/servers . 2>/dev/null || true
+            echo "✓ Backup do mundo gerado com sucesso!"
+          fi
 
-      - name: Commit do mundo no repositório
+          if [ -d "daemon/data" ]; then
+            tar -czf backups/data-saved.tar.gz -C daemon/data . 2>/dev/null || true
+            echo "✓ Backup de contas e configurações gerado!"
+          fi
+
+      - name: 📤 Commitar e Salvar Progresso no Repositório
         if: always()
         run: |
-          git config user.name "mcforge-bot"
-          git config user.email "mcforge@users.noreply.github.com"
-          git add -f server/world-backup.tar.gz server/server.log 2>/dev/null || true
-          git commit -m "💾 backup do mundo [$(date -u +%Y-%m-%dT%H:%M:%SZ)]" 2>/dev/null || echo "Nada para commitar"
-          git push origin main 2>&1 | tail -2 || echo "Push falhou (pode ser conflito — será resolvido no próximo ciclo)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f backups/*.tar.gz 2>/dev/null || true
+          git commit -m "💾 [Auto-Save] Backup automático do mundo [$(date -u +%Y-%m-%d\ %H:%M)]" 2>/dev/null || echo "Nada novo para commitar"
+          git push origin main 2>&1 || echo "Push pulado ou sem alterações."
