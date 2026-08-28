@@ -468,7 +468,7 @@ export default function Login() {
 
               <button
                 type="submit"
-                disabled={loading || !password || connectionStatus === 'offline'}
+                disabled={loading || !password}
                 className="btn-primary w-full !py-3 !rounded-xl font-bold flex items-center justify-center gap-2 mt-2 transition-all active:scale-[0.99]"
               >
                 {loading ? (
@@ -636,7 +636,7 @@ export default function Login() {
 
               <button
                 type="submit"
-                disabled={loading || !username || !password || (confirmPassword && !passwordsMatch) || connectionStatus === 'offline'}
+                disabled={loading || !username || !password || (confirmPassword && !passwordsMatch)}
                 className="btn-primary w-full !py-3 !rounded-xl font-bold flex items-center justify-center gap-2 mt-2 transition-all active:scale-[0.99]"
               >
                 {loading ? (
