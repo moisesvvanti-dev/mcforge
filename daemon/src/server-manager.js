@@ -239,6 +239,14 @@ class ServerManager extends EventEmitter {
       args = [...server.javaArgs.split(/\s+/).filter(Boolean), '-jar', mainJar, 'nogui'];
     }
 
+    // Aceitar EULA automaticamente para o servidor nunca parar
+    try {
+      fs.writeFileSync(path.join(dir, 'eula.txt'), 'eula=true\n');
+      this.writeServerProperties(id, server);
+    } catch (e) {
+      log('warn', `Erro ao gravar eula/properties: ${e.message}`);
+    }
+
     log('info', `Iniciando servidor ${server.name} (${id})...`);
     const child = spawn(cmd, args, { cwd: dir, shell: false });
     this.processes[id] = child;
