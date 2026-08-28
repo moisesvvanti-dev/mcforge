@@ -197,6 +197,7 @@ export const api = {
   }),
   authStatus: () => request('/api/auth/status'),
   health: () => request('/api/health'),
+  publicInfo: () => request('/api/public-info'),
 
   // Sistema
   dashboard: () => request('/api/dashboard'),

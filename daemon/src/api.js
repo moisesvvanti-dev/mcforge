@@ -88,6 +88,20 @@ function createApi(wss) {
   });
 
   // ---------- Sistema ----------
+  app.get('/api/public-info', (req, res) => {
+    const { hasPassword } = require('./config');
+    res.json({
+      status: 'ok',
+      initialized: hasPassword(),
+      types: ['paper', 'purpur', 'vanilla', 'fabric', 'forge'],
+      system: {
+        javaAvailable: getSystemInfo().javaAvailable,
+        platform: getSystemInfo().platform
+      },
+      time: new Date().toISOString()
+    });
+  });
+
   app.get('/api/system', authenticateToken, (req, res) => {
     res.json({ config: getConfig(), system: getSystemInfo() });
   });
@@ -247,8 +261,8 @@ function createApi(wss) {
     res.json(result);
   });
 
-  // ---------- Versões ----------
-  app.get('/api/versions/:type', authenticateToken, async (req, res) => {
+  // ---------- Versões (público / sem necessidade de login prévio) ----------
+  app.get('/api/versions/:type', optionalAuth, async (req, res) => {
     const type = req.params.type;
     try {
       let versions = [];

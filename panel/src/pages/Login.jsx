@@ -49,20 +49,23 @@ export default function Login() {
   const passwordStrength = useMemo(() => evaluatePasswordStrength(password), [password])
   const passwordsMatch = !confirmPassword || password === confirmPassword
 
-  // Verificar status inicial do servidor
+  const [publicData, setPublicData] = useState(null)
+
+  // Verificar status inicial do servidor e carregar opções públicas
   const checkConnection = async () => {
     const start = performance.now()
     try {
       if (isHosted) {
         await autoDiscoverDaemonUrl()
       }
-      const [authStat] = await Promise.all([
+      const [authStat, info] = await Promise.all([
         api.authStatus(),
-        api.health()
+        api.publicInfo().catch(() => api.health())
       ])
       const latency = Math.round(performance.now() - start)
       setPingMs(latency)
       setConnectionStatus('connected')
+      setPublicData(info)
       setError('')
       if (!authStat.initialized) {
         setIsFirstSetup(true)
@@ -244,6 +247,21 @@ export default function Login() {
               {connectionStatus === 'offline' && 'Servidor Offline na Nuvem'}
             </span>
           </div>
+
+          {/* Opções Públicas Disponíveis no Servidor (Sem precisar logar para visualizar) */}
+          {connectionStatus === 'connected' && (
+            <div className="mt-3 flex items-center justify-center gap-1.5 flex-wrap animate-fade-in">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                ⚡ Paper & Purpur
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-500/10 border border-blue-500/20 text-blue-400">
+                ☕ Java 21
+              </span>
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                🛡️ Cloudflare DDoS
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Card de Aviso Quando o Servidor no GitHub Actions Está Offline */}
