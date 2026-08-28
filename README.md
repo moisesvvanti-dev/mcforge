@@ -160,6 +160,31 @@ O navegador abre, você escolhe seu domínio (ou cria um site gratuito) e autori
 
 ---
 
+## 🐙 Tudo via GitHub (repositório + Pages + Actions)
+
+O projeto está no GitHub: **https://github.com/moisesvvanti-dev/mcforge**
+
+### Painel hospedado no GitHub Pages (grátis, HTTPS)
+- URL: **https://moisesvvanti-dev.github.io/mcforge/**
+- Deploy 100% automático: a cada `git push` na `main`, o workflow
+  `.github/workflows/panel-deploy.yml` compila o React e publica no Pages.
+- Para o painel falar com o daemon, defina a URL do daemon em
+  **Configurações → Conexão com o Daemon** (a URL HTTPS do seu Tunnel).
+
+### Servidor Minecraft no GitHub Actions (⚠️ EXPERIMENTAL — só testes)
+- Workflow: `.github/workflows/minecraft-server.yml`
+- Como ativar: **Actions → "🎮 Servidor Minecraft (Experimental)" → Run workflow**
+- Escolha versão (ex: `1.21.11`), RAM (ex: `2G`) e tipo (paper/vanilla/purpur)
+- O servidor sobe na nuvem do GitHub e é exposto via **Cloudflare Tunnel**
+  (a URL `trycloudflare.com` aparece nos logs do job — veja no passo "Iniciar Cloudflare Tunnel")
+- ⚠️ **Limitações (importantes):**
+  - O job morre em no máximo **6 horas** — servidor cai
+  - O mundo **NÃO é salvo** (o disco é descartado)
+  - Não é CI/CD — usar demais pode dar problema na conta
+  - Para 24/7 real: PC próprio ou VPS gratuita (Oracle Cloud)
+
+---
+
 ## ☁️ Hospedando o painel no Netlify (grátis)
 
 O painel é um app React estático — perfeito para Netlify:
