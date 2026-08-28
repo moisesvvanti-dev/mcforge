@@ -7,10 +7,10 @@ const URL_KEY = 'mcforge_daemon_url'
 
 // URL base do daemon.
 // - Em dev local (vite), '' usa o proxy -> http://localhost:3000
-// - No Netlify, configure a URL pública do daemon (tunnel) nas Configurações
+// - No GitHub Pages/Netlify, configure a URL pública do daemon (tunnel)
 export function getBase() {
   const stored = localStorage.getItem(URL_KEY)
-  if (stored) return stored.replace(/\/+$/, '')
+  if (stored) return normalizeUrl(stored)
   // Detectar se estamos rodando localmente (dev) ou hospedado
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return ''
@@ -18,8 +18,19 @@ export function getBase() {
   return ''
 }
 
+// Normaliza a URL do daemon (adiciona protocolo se faltar, remove barra final)
+export function normalizeUrl(url) {
+  let u = String(url || '').trim().replace(/\/+$/, '')
+  if (!u) return ''
+  if (!/^https?:\/\//i.test(u)) {
+    u = (window.location.protocol === 'https:' ? 'https://' : 'http://') + u
+  }
+  return u
+}
+
 export function setDaemonUrl(url) {
-  if (url) localStorage.setItem(URL_KEY, url.replace(/\/+$/, ''))
+  const normalized = normalizeUrl(url)
+  if (normalized) localStorage.setItem(URL_KEY, normalized)
   else localStorage.removeItem(URL_KEY)
 }
 

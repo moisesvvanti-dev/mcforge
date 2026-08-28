@@ -1,7 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, setToken, setDaemonUrl } from '../lib/api'
+import { api, setToken, setDaemonUrl as persistDaemonUrl } from '../lib/api'
 import Spinner from '../components/Spinner'
+
+// Detecta se o painel está rodando no mesmo lugar do daemon (localhost)
+function isLocalEnvironment() {
+  const host = window.location.hostname
+  return host === 'localhost' || host === '127.0.0.1' || host === ''
+}
 
 export default function Login() {
   const navigate = useNavigate()
@@ -10,34 +16,70 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [isFirstSetup, setIsFirstSetup] = useState(false)
-  const [daemonUrl, setDaemonUrl] = useState(localStorage.getItem('mcforge_daemon_url') || '')
-  const [showUrl, setShowUrl] = useState(false)
+  const [daemonUrl, setUrlInput] = useState(localStorage.getItem('mcforge_daemon_url') || '')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState(null) // null | {ok, msg}
+  const localEnv = isLocalEnvironment()
+
+  // Em ambiente local o campo de URL não é necessário
+  const showUrlField = !localEnv || daemonUrl !== ''
+
+  // Verificar se é primeira execução (quando conectado)
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await api.authStatus()
+        setIsFirstSetup(!res.initialized)
+      } catch {
+        // Daemon inacessível — segue em frente, o login mostrará o erro
+      }
+    }
+    check()
+  }, [])
+
+  const saveUrlIfNeeded = () => {
+    if (daemonUrl.trim()) {
+      persistDaemonUrl(daemonUrl.trim())
+    } else if (!localEnv) {
+      // Em GitHub Pages/Netlify sem URL, tenta o proxy relativo
+      persistDaemonUrl('')
+    }
+  }
+
+  const testConnection = async () => {
+    setTesting(true)
+    setTestResult(null)
+    saveUrlIfNeeded()
+    try {
+      const res = await api.health()
+      setTestResult({ ok: true, msg: `Daemon conectado! (${res.status})` })
+    } catch (e) {
+      setTestResult({ ok: false, msg: `Falha: ${e.message}` })
+    } finally {
+      setTesting(false)
+    }
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      if (daemonUrl.trim()) {
-        setDaemonUrl(daemonUrl.trim())
-      }
+      saveUrlIfNeeded()
       const result = await api.login(username || 'admin', password)
       setToken(result.token)
+      if (result.firstLogin) {
+        setIsFirstSetup(false)
+      }
       navigate('/')
     } catch (err) {
       setError(err.message || 'Falha no login')
+      // Se o erro parece de conexão, mostra dica
+      if (/fetch|network|502|404|Failed to fetch|inacess|Erro \d+/i.test(err.message)) {
+        setError(`${err.message} — Confira a URL do daemon abaixo e use "Testar conexão".`)
+      }
     } finally {
       setLoading(false)
-    }
-  }
-
-  const checkSetup = async () => {
-    try {
-      const res = await api.authStatus()
-      setIsFirstSetup(!res.initialized)
-    } catch {
-      // Se não conseguir conectar, mostra o campo de URL
-      setShowUrl(true)
     }
   }
 
@@ -64,6 +106,12 @@ export default function Login() {
           {isFirstSetup && (
             <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-400 text-sm">
               <strong>Primeira execução!</strong> Defina a senha mestre do seu painel.
+            </div>
+          )}
+
+          {!localEnv && (
+            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-blue-300 text-xs">
+              🌐 Painel hospedado na nuvem. Conecte ao daemon do seu PC para continuar.
             </div>
           )}
 
@@ -102,29 +150,39 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-4">
-            <button
-              onClick={() => setShowUrl(!showUrl)}
-              className="text-xs text-gray-500 hover:text-gray-300"
-            >
-              {showUrl ? 'Ocultar' : '▶'} Configurar URL do daemon (Netlify)
-            </button>
-            {showUrl && (
-              <div className="mt-2 animate-fade-in">
-                <label className="label">URL do daemon (ex: https://seu-tunnel.trycloudflare.com)</label>
-                <input
-                  type="text"
-                  value={daemonUrl}
-                  onChange={e => setDaemonUrl(e.target.value)}
-                  placeholder="http://localhost:3000"
-                  className="input"
-                />
-                <p className="text-[11px] text-gray-500 mt-1">
-                  Deixe vazio se o painel está rodando junto com o daemon (localhost).
-                </p>
+          {/* URL do daemon — sempre visível quando o painel não está no mesmo local que o daemon */}
+          {(showUrlField || !localEnv) && (
+            <div className="mt-4 pt-4 border-t border-gray-800 animate-fade-in">
+              <label className="label">
+                URL do daemon {localEnv ? '(opcional — use só se o daemon estiver em outra máquina)' : '(obrigatória — onde o daemon está rodando)'}
+              </label>
+              <input
+                type="text"
+                value={daemonUrl}
+                onChange={e => {
+                  setUrlInput(e.target.value)
+                  setTestResult(null)
+                }}
+                placeholder={localEnv ? 'http://localhost:3000' : 'https://seu-tunnel.trycloudflare.com'}
+                className="input"
+              />
+              <p className="text-[11px] text-gray-500 mt-1">
+                {localEnv
+                  ? 'Deixe vazio se o painel está rodando junto com o daemon (localhost).'
+                  : 'Ex: https://seu-tunnel.trycloudflare.com (Cloudflare Tunnel) ou http://SEU_IP:3000 (port forwarding).'}
+              </p>
+              <div className="flex items-center gap-2 mt-2">
+                <button type="button" onClick={testConnection} disabled={testing} className="btn-secondary !py-1.5 text-xs">
+                  {testing ? <Spinner size="sm" /> : '🔌 Testar conexão'}
+                </button>
+                {testResult && (
+                  <span className={`text-xs ${testResult.ok ? 'text-green-400' : 'text-red-400'}`}>
+                    {testResult.msg}
+                  </span>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
         <p className="text-center text-xs text-gray-600 mt-6">
