@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { api } from '../lib/api'
+import { api, getBase } from '../lib/api'
 import { useApi } from '../hooks/useApi'
 import Spinner from '../components/Spinner'
 import StatusBadge from '../components/StatusBadge'
@@ -82,6 +82,21 @@ export default function ServerDetail({ ws }) {
 
   const isRunning = server.status === 'running'
 
+  const base = getBase()
+  let serverAddress = `localhost:${server.port}`
+  if (server.publicAddress) {
+    serverAddress = server.publicAddress
+  } else if (server.playitAddress) {
+    serverAddress = server.playitAddress
+  } else if (base) {
+    try {
+      const hostname = new URL(base).hostname
+      if (hostname && !hostname.includes('localhost') && !hostname.includes('127.0.0.1')) {
+        serverAddress = hostname
+      }
+    } catch { }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Cabeçalho */}
@@ -142,7 +157,7 @@ export default function ServerDetail({ ws }) {
 
       {/* Informações rápidas */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <QuickInfo label="Endereço" value={`localhost:${server.port}`} copy />
+        <QuickInfo label="Endereço" value={serverAddress} copy />
         <QuickInfo label="Versão" value={`${serverTypeLabel(server.type)} ${server.version}`} />
         <QuickInfo label="Modo" value={gamemodeLabel(server.gamemode)} />
         <QuickInfo label="Dificuldade" value={difficultyLabel(server.difficulty)} />
