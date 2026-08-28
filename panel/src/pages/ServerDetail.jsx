@@ -868,7 +868,7 @@ function FilesTab({ server }) {
 // ===================== JOGADORES =====================
 function PlayersTab({ server }) {
   const [lists, setLists] = useState({ whitelist: server.whitelist || [], ops: server.ops || [], banned: server.banned || [] })
-  const [name, setName] = useState('')
+  const [playerInputs, setPlayerInputs] = useState({ whitelist: '', ops: '', banned: '' })
   const [message, setMessage] = useState('')
 
   const updateList = async (kind, player, action) => {
@@ -881,9 +881,10 @@ function PlayersTab({ server }) {
   }
 
   const addPlayer = async (kind) => {
-    if (!name.trim()) return
-    await updateList(kind, name.trim(), 'add')
-    setName('')
+    const val = (playerInputs[kind] || '').trim()
+    if (!val) return
+    await updateList(kind, val, 'add')
+    setPlayerInputs(prev => ({ ...prev, [kind]: '' }))
   }
 
   const sections = [
@@ -910,8 +911,8 @@ function PlayersTab({ server }) {
 
             <div className="flex gap-2 mb-3">
               <input
-                value={name}
-                onChange={e => setName(e.target.value)}
+                value={playerInputs[section.id] || ''}
+                onChange={e => setPlayerInputs(prev => ({ ...prev, [section.id]: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && addPlayer(section.id)}
                 placeholder="Nome do jogador"
                 className="input !py-1.5 text-xs"

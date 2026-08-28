@@ -180,7 +180,7 @@ function createApi(wss) {
     }
   });
 
-  app.get('/api/servers/:id', authenticateToken, (req, res) => {
+  app.get('/api/servers/:id', optionalAuth, (req, res) => {
     const server = serverManager.getServer(req.params.id);
     if (!server) return res.status(404).json({ error: 'Servidor não encontrado' });
     res.json({ server });
@@ -225,8 +225,8 @@ function createApi(wss) {
     res.json(result);
   });
 
-  app.get('/api/servers/:id/logs', authenticateToken, (req, res) => {
-    const limit = parseInt(req.query.limit || '100', 10);
+  app.get('/api/servers/:id/logs', optionalAuth, (req, res) => {
+    const limit = parseInt(req.query.limit || '200', 10);
     res.json({ logs: serverManager.getLogs(req.params.id, limit) });
   });
 
