@@ -4,22 +4,12 @@
 
 const TOKEN_KEY = 'mcforge_token'
 const USER_KEY = 'mcforge_user'
-const URL_KEY = 'mcforge_daemon_url'
 
-// URL base do daemon.
-// - Em dev local (vite), '' usa o proxy -> http://localhost:3000
-// - No GitHub Pages/Netlify, configure a URL pública do daemon (tunnel)
+// URL base do daemon: Sempre relativo (''), pois o painel e o daemon rodam no mesmo site/túnel
 export function getBase() {
-  const stored = localStorage.getItem(URL_KEY)
-  if (stored) return normalizeUrl(stored)
-  // Detectar se estamos rodando localmente (dev) ou hospedado
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    return ''
-  }
-  return ''
+  return localStorage.getItem('mcforge_daemon_url') || ''
 }
 
-// Normaliza a URL do daemon (adiciona protocolo se faltar, remove barra final)
 export function normalizeUrl(url) {
   let u = String(url || '').trim().replace(/\/+$/, '')
   if (!u) return ''
@@ -31,8 +21,8 @@ export function normalizeUrl(url) {
 
 export function setDaemonUrl(url) {
   const normalized = normalizeUrl(url)
-  if (normalized) localStorage.setItem(URL_KEY, normalized)
-  else localStorage.removeItem(URL_KEY)
+  if (normalized) localStorage.setItem('mcforge_daemon_url', normalized)
+  else localStorage.removeItem('mcforge_daemon_url')
 }
 
 export function getToken() {
@@ -67,8 +57,7 @@ export function isAuthenticated() {
 
 // ---------- API helper ----------
 async function request(path, options = {}) {
-  const base = getBase()
-  const url = base + path
+  const url = path
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
@@ -77,13 +66,7 @@ async function request(path, options = {}) {
   try {
     res = await fetch(url, { ...options, headers })
   } catch (err) {
-    // Diagnosticar erro de conexão / CORS / Mixed Content
-    const panelIsHttps = window.location.protocol === 'https:'
-    const targetIsHttp = /^http:\/\//i.test(url) || (!base && panelIsHttps)
-    if (panelIsHttps && targetIsHttp) {
-      throw new Error('Bloqueio Mixed-Content: Painel HTTPS não pode conectar diretamente a daemon HTTP sem Tunnel com SSL ou proxy.')
-    }
-    throw new Error(`Falha de conexão com o daemon (${url || 'localhost:3000'}): ${err.message}`)
+    throw new Error(`Falha de conexão com o servidor: ${err.message}`)
   }
 
   if (res.status === 401) {
@@ -213,8 +196,7 @@ export const api = {
 
 // Upload de arquivos (multipart)
 async function uploadFile(path, file) {
-  const base = getBase()
-  const url = base + path
+  const url = path
   const formData = new FormData()
   formData.append('file', file)
 
@@ -234,16 +216,8 @@ async function uploadFile(path, file) {
 
 // ---------- WebSocket ----------
 export function getWsUrl() {
-  const base = getBase()
-  let host, proto
-  if (base) {
-    const parsed = new URL(base)
-    host = parsed.host
-    proto = parsed.protocol === 'https:' ? 'wss' : 'ws'
-  } else {
-    host = window.location.host
-    proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  }
+  const host = window.location.host
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
   return `${proto}://${host}/ws?token=${encodeURIComponent(getToken() || '')}`
 }
 

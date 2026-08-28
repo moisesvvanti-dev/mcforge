@@ -1,13 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, setToken, setUser, setDaemonUrl as persistDaemonUrl, getBase } from '../lib/api'
+import { api, setToken, setUser } from '../lib/api'
 import Spinner from '../components/Spinner'
-
-// Detecta se o painel está rodando no mesmo lugar do daemon (localhost)
-function isLocalEnvironment() {
-  const host = window.location.hostname
-  return host === 'localhost' || host === '127.0.0.1' || host === ''
-}
 
 // Avaliador de força de senha
 function evaluatePasswordStrength(password) {
@@ -27,9 +21,8 @@ function evaluatePasswordStrength(password) {
 
 export default function Login() {
   const navigate = useNavigate()
-  const localEnv = isLocalEnvironment()
 
-  // Tabs: 'login' | 'register' | 'daemon'
+  // Tabs: 'login' | 'register'
   const [tab, setTab] = useState('login')
 
   // Form states
@@ -46,70 +39,16 @@ export default function Login() {
   const [error, setError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [isFirstSetup, setIsFirstSetup] = useState(false)
-  const [checkingSetup, setCheckingSetup] = useState(true)
-
-  // Daemon connection
-  const [daemonUrl, setUrlInput] = useState(localStorage.getItem('mcforge_daemon_url') || '')
   const [connectionStatus, setConnectionStatus] = useState('checking') // 'checking' | 'connected' | 'error'
   const [pingMs, setPingMs] = useState(null)
-  const [testing, setTesting] = useState(false)
-  const [testMessage, setTestMessage] = useState('')
 
   const passwordStrength = useMemo(() => evaluatePasswordStrength(password), [password])
   const passwordsMatch = !confirmPassword || password === confirmPassword
 
-  // Salva a URL no localStorage se necessário
-  const saveUrl = (urlToSave) => {
-    const val = typeof urlToSave === 'string' ? urlToSave : daemonUrl
-    if (val.trim()) {
-      persistDaemonUrl(val.trim())
-    } else {
-      persistDaemonUrl('')
-    }
-  }
-
-  // Testar conexão com o Daemon e medir latência
-  const testDaemonConnection = async (customUrl) => {
-    setTesting(true)
-    setError('')
-    setTestMessage('')
-    if (customUrl !== undefined) saveUrl(customUrl)
-    else saveUrl(daemonUrl)
-
-    const startTime = performance.now()
-    try {
-      const res = await api.health()
-      const latency = Math.round(performance.now() - startTime)
-      setPingMs(latency)
-      setConnectionStatus('connected')
-      setTestMessage(`Conectado com sucesso! (${latency}ms)`)
-
-      // Checa se o daemon está inicializado
-      try {
-        const authStat = await api.authStatus()
-        setIsFirstSetup(!authStat.initialized)
-      } catch { }
-      return true
-    } catch (e) {
-      setConnectionStatus('error')
-      setPingMs(null)
-      const isMixed = window.location.protocol === 'https:' && /^http:\/\//i.test(getBase())
-      if (isMixed) {
-        setTestMessage('Erro: Bloqueio Mixed-Content (HTTPS não pode acessar daemon HTTP sem túnel seguro).')
-      } else {
-        setTestMessage(`Falha de conexão: ${e.message}`)
-      }
-      return false
-    } finally {
-      setTesting(false)
-    }
-  }
-
-  // Verificar status inicial do daemon
+  // Verificar status inicial do servidor em segundo plano
   useEffect(() => {
     let isMounted = true
     const checkInit = async () => {
-      setCheckingSetup(true)
       const start = performance.now()
       try {
         const [authStat] = await Promise.all([
@@ -129,8 +68,6 @@ export default function Login() {
         if (isMounted) {
           setConnectionStatus('error')
         }
-      } finally {
-        if (isMounted) setCheckingSetup(false)
       }
     }
     checkInit()
@@ -159,7 +96,6 @@ export default function Login() {
     }
 
     try {
-      saveUrl()
       const result = await api.login(finalUsername, password)
       
       if (result.token) {
@@ -172,10 +108,10 @@ export default function Login() {
         }
         navigate('/')
       } else {
-        setError('Resposta inválida do servidor de autenticação.')
+        setError('Resposta inválida do servidor.')
       }
     } catch (err) {
-      handleAuthError(err)
+      setError(err.message || 'Falha ao autenticar. Verifique seus dados.')
     } finally {
       setLoading(false)
     }
@@ -212,7 +148,6 @@ export default function Login() {
     setLoading(true)
 
     try {
-      saveUrl()
       const result = await api.register(finalUsername, password, name.trim())
       
       if (result.token) {
@@ -228,31 +163,9 @@ export default function Login() {
         setTab('login')
       }
     } catch (err) {
-      handleAuthError(err)
+      setError(err.message || 'Falha ao registrar usuário.')
     } finally {
       setLoading(false)
-    }
-  }
-
-  // Tratador amigável de erros de conexão e auth
-  const handleAuthError = (err) => {
-    const msg = err.message || 'Erro inesperado'
-    if (/Failed to fetch|NetworkError|TypeError|Load failed|Bloqueio Mixed-Content|Falha de conexão/i.test(msg)) {
-      const url = getBase() || (localEnv ? 'http://localhost:3000' : window.location.origin)
-      const panelIsHttps = window.location.protocol === 'https:'
-      const urlIsHttp = /^http:\/\//i.test(url)
-
-      if (panelIsHttps && urlIsHttp) {
-        setError(
-          '🚫 Conexão Bloqueada (Mixed Content): O painel está em HTTPS, mas o daemon está em HTTP. Utilize o endereço seguro do Cloudflare Tunnel (ex: https://xxx.trycloudflare.com) na aba "Conexão", ou acesse via localhost:3000.'
-        )
-      } else {
-        setError(
-          `🔌 Não foi possível conectar ao daemon em "${url}". Verifique se o daemon está iniciado (npm start na pasta daemon) e teste na aba "Conexão".`
-        )
-      }
-    } else {
-      setError(msg)
     }
   }
 
@@ -274,8 +187,8 @@ export default function Login() {
         />
       </div>
 
-      <div className="relative w-full max-w-lg z-10">
-        {/* Header com Logo Isometrico / 3D Stylized */}
+      <div className="relative w-full max-w-md z-10">
+        {/* Header com Logo Isométrico Stylized */}
         <div className="text-center mb-8">
           <div className="relative inline-block group">
             <div className="absolute -inset-1.5 bg-gradient-to-r from-green-500 via-emerald-400 to-cyan-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-pulse-slow" />
@@ -292,12 +205,12 @@ export default function Login() {
             MCForge
           </h1>
           <p className="text-gray-400 text-sm mt-1 flex items-center justify-center gap-2">
-            <span>Painel Avançado de Hospedagem</span>
+            <span>Hospedagem de Minecraft</span>
             <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
             <span className="text-gray-500 text-xs font-mono">v1.0</span>
           </p>
 
-          {/* Status do Daemon em Tempo Real */}
+          {/* Status do Servidor em Tempo Real */}
           <div className="mt-3 inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-gray-900/80 border border-gray-800 backdrop-blur">
             <span className="relative flex h-2 w-2">
               {connectionStatus === 'connected' && (
@@ -305,13 +218,13 @@ export default function Login() {
               )}
               <span className={`relative inline-flex rounded-full h-2 w-2 ${
                 connectionStatus === 'connected' ? 'bg-green-500' :
-                connectionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-red-500'
+                connectionStatus === 'checking' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'
               }`} />
             </span>
             <span className="text-gray-300">
-              {connectionStatus === 'connected' && (pingMs !== null ? `Daemon Online • ${pingMs}ms` : 'Daemon Online')}
-              {connectionStatus === 'checking' && 'Verificando conexão...'}
-              {connectionStatus === 'error' && 'Daemon Desconectado'}
+              {connectionStatus === 'connected' && (pingMs !== null ? `Servidor Conectado • ${pingMs}ms` : 'Servidor Conectado')}
+              {connectionStatus === 'checking' && 'Conectando ao sistema...'}
+              {connectionStatus === 'error' && 'Pronto para Conectar'}
             </span>
           </div>
         </div>
@@ -327,20 +240,20 @@ export default function Login() {
                 </svg>
               </div>
               <div>
-                <h4 className="text-sm font-bold text-emerald-300">🚀 Primeira Execução Detectada</h4>
+                <h4 className="text-sm font-bold text-emerald-300">🚀 Primeira Execução</h4>
                 <p className="text-xs text-gray-300 mt-0.5 leading-relaxed">
-                  Defina a conta mestre do Administrador para inicializar e proteger seu painel.
+                  Crie sua conta de <strong>Administrador</strong> para começar a gerenciar seus servidores.
                 </p>
               </div>
             </div>
           )}
 
-          {/* Navegação por Abas */}
+          {/* Navegação por Abas (Apenas Entrar e Registrar) */}
           <div className="flex bg-gray-950/70 p-1.5 rounded-2xl border border-gray-800 mb-6 gap-1">
             <button
               type="button"
               onClick={() => setTab('login')}
-              className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 ${
                 tab === 'login'
                   ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-900/30'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
@@ -355,7 +268,7 @@ export default function Login() {
             <button
               type="button"
               onClick={() => setTab('register')}
-              className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${
+              className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 ${
                 tab === 'register'
                   ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-900/30'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
@@ -366,25 +279,9 @@ export default function Login() {
               </svg>
               {isFirstSetup ? 'Criar Admin' : 'Registrar'}
             </button>
-
-            <button
-              type="button"
-              onClick={() => setTab('daemon')}
-              className={`py-2 px-3 rounded-xl text-xs font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${
-                tab === 'daemon'
-                  ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-lg shadow-green-900/30'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800/40'
-              }`}
-              title="Configurações de Rede do Daemon"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2" />
-              </svg>
-              <span className="hidden sm:inline">Conexão</span>
-            </button>
           </div>
 
-          {/* Mensagens Globais de Sucesso e Erro */}
+          {/* Mensagens de Sucesso e Erro */}
           {error && (
             <div className="mb-5 p-3.5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-xs sm:text-sm flex items-start gap-3 animate-slide-up">
               <svg className="w-5 h-5 shrink-0 text-red-400 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -409,7 +306,7 @@ export default function Login() {
               <div>
                 <label className="label flex items-center justify-between">
                   <span>Nome de Usuário</span>
-                  <span className="text-[11px] text-gray-500 lowercase">ex: admin ou jogador</span>
+                  <span className="text-[11px] text-gray-500 lowercase">ex: admin</span>
                 </label>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
@@ -476,16 +373,6 @@ export default function Login() {
                   />
                   <span>Lembrar meu usuário</span>
                 </label>
-
-                {connectionStatus === 'error' && (
-                  <button
-                    type="button"
-                    onClick={() => setTab('daemon')}
-                    className="text-emerald-400 hover:underline inline-flex items-center gap-1"
-                  >
-                    Ajustar URL
-                  </button>
-                )}
               </div>
 
               <button
@@ -528,7 +415,7 @@ export default function Login() {
                     type="text"
                     value={username}
                     onChange={e => setUsername(e.target.value)}
-                    placeholder={isFirstSetup ? 'admin' : 'novo_usuario'}
+                    placeholder={isFirstSetup ? 'admin' : 'seu_usuario'}
                     className="input !pl-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30"
                     autoComplete="username"
                     required
@@ -676,120 +563,6 @@ export default function Login() {
                 )}
               </button>
             </form>
-          )}
-
-          {/* ======================= ABA: CONEXÃO COM DAEMON ======================= */}
-          {tab === 'daemon' && (
-            <div className="space-y-4 animate-fade-in">
-              <div>
-                <label className="label flex items-center justify-between">
-                  <span>URL do Daemon (Backend)</span>
-                  <span className="text-[11px] text-gray-500">API Node.js</span>
-                </label>
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-500">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
-                    </svg>
-                  </div>
-                  <input
-                    type="text"
-                    value={daemonUrl}
-                    onChange={e => {
-                      setUrlInput(e.target.value)
-                      setTestMessage('')
-                    }}
-                    placeholder={localEnv ? 'http://localhost:3000' : 'https://seu-tunnel.trycloudflare.com'}
-                    className="input !pl-10 !py-2.5 !bg-gray-950/60 !border-gray-800 focus:!border-green-500 focus:!ring-green-500/30 font-mono text-xs"
-                  />
-                </div>
-              </div>
-
-              {/* Presets Rápidos */}
-              <div>
-                <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider block mb-1.5">
-                  Atalhos Rápidos
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUrlInput('http://localhost:3000')
-                      testDaemonConnection('http://localhost:3000')
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-xs text-gray-300 transition-colors"
-                  >
-                    💻 Localhost (3000)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setUrlInput('')
-                      testDaemonConnection('')
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-xs text-gray-300 transition-colors"
-                  >
-                    🔄 Padrão Relativo
-                  </button>
-                </div>
-              </div>
-
-              {/* Resultado do Teste */}
-              {testMessage && (
-                <div className={`p-3 rounded-xl border text-xs leading-relaxed ${
-                  connectionStatus === 'connected'
-                    ? 'bg-green-500/10 border-green-500/30 text-green-300'
-                    : 'bg-red-500/10 border-red-500/30 text-red-300'
-                }`}>
-                  {testMessage}
-                </div>
-              )}
-
-              {/* Dicas de Diagnóstico */}
-              <div className="p-3.5 bg-gray-950/80 border border-gray-800/80 rounded-xl text-[11px] text-gray-400 space-y-2">
-                <div className="flex items-center gap-1.5 text-gray-200 font-semibold">
-                  <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span>Dicas de Conexão</span>
-                </div>
-                <p>
-                  • <strong>Local:</strong> Se estiver rodando no mesmo PC do painel, deixe vazio ou use <code className="text-gray-300">http://localhost:3000</code>.
-                </p>
-                <p>
-                  • <strong>Nuvem / Netlify / Vercel:</strong> Como o painel é HTTPS, use a URL segura do Cloudflare Tunnel gerada pelo daemon (<code className="text-gray-300">https://xxx.trycloudflare.com</code>) para evitar bloqueio pelo navegador.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => testDaemonConnection()}
-                  disabled={testing}
-                  className="btn-primary flex-1 !py-2.5 !rounded-xl text-xs font-semibold flex items-center justify-center gap-2"
-                >
-                  {testing ? <Spinner size="sm" /> : (
-                    <>
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <span>Testar Conexão Agora</span>
-                    </>
-                  )}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    saveUrl()
-                    setTab('login')
-                  }}
-                  className="btn-secondary !py-2.5 !px-4 !rounded-xl text-xs font-semibold"
-                >
-                  Voltar
-                </button>
-              </div>
-            </div>
           )}
         </div>
 
