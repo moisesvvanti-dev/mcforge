@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { api, formatBytes, timeAgo, triggerGitHubWorkflow, getGitHubToken, setGitHubToken, autoDiscoverDaemonUrl, getGitHubRepoInfo } from '../lib/api'
+import { api, formatBytes, timeAgo, triggerGitHubWorkflow, getGitHubToken, setGitHubToken, autoDiscoverDaemonUrl, getGitHubRepoInfo, setDaemonUrl } from '../lib/api'
 import { useApi } from '../hooks/useApi'
 import StatusBadge from '../components/StatusBadge'
 import ServerCard from '../components/ServerCard'
@@ -14,6 +14,7 @@ export default function Dashboard({ ws }) {
   const [cloudStatusText, setCloudStatusText] = useState('')
   const [showTokenModal, setShowTokenModal] = useState(false)
   const [ghTokenInput, setGhTokenInput] = useState(getGitHubToken())
+  const [customTunnelInput, setCustomTunnelInput] = useState('')
   const [tokenError, setTokenError] = useState('')
 
   const handleAction = async (id, action) => {
@@ -134,45 +135,76 @@ export default function Dashboard({ ws }) {
 
       {/* Banner de Controle da Nuvem (GitHub Actions) */}
       {isOffline && (
-        <div className="bg-gradient-to-r from-emerald-950/80 via-gray-900 to-gray-900 border border-emerald-500/40 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-slide-up">
-          <div className="flex items-start gap-4">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-base font-bold text-white">Servidor Pronto para Executar na Nuvem</h3>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Pronto para Ligar
-                </span>
+        <>
+          <div className="bg-gradient-to-r from-emerald-950/80 via-gray-900 to-gray-900 border border-emerald-500/40 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-slide-up">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
               </div>
-              <p className="text-xs text-gray-300 mt-1 max-w-xl leading-relaxed">
-                Você já está autenticado no painel! Configure seus servidores abaixo e clique para iniciar a máquina na nuvem do GitHub Actions.
-              </p>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-white">Servidor Pronto para Executar na Nuvem</h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Pronto para Ligar
+                  </span>
+                </div>
+                <p className="text-xs text-gray-300 mt-1 max-w-xl leading-relaxed">
+                  Você já está autenticado no painel! Configure seus servidores abaixo e clique para iniciar a máquina na nuvem do GitHub Actions.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
+              {cloudStarting ? (
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-semibold">
+                  <Spinner size="sm" />
+                  <span>{cloudStatusText}</span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => handleStartCloud()}
+                  className="btn-primary w-full md:w-auto !py-2.5 !px-5 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/30 active:scale-[0.98]"
+                >
+                  <span>🚀 Ligar Servidores na Nuvem (1 Clique)</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
-            {cloudStarting ? (
-              <div className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/15 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-semibold">
-                <Spinner size="sm" />
-                <span>{cloudStatusText}</span>
-              </div>
-            ) : (
-              <button
-                onClick={() => handleStartCloud()}
-                className="btn-primary w-full md:w-auto !py-2.5 !px-5 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/30 active:scale-[0.98]"
-              >
-                <span>🚀 Ligar Servidores na Nuvem (1 Clique)</span>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
+          {/* Barra de Conexão Rápida com Link de Túnel Ativo */}
+          <div className="bg-gray-900/70 border border-gray-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs animate-fade-in">
+            <div className="flex items-center gap-2 text-gray-300">
+              <span className="text-emerald-400 font-bold">🔗 Conectar Link do Túnel Ativo:</span>
+              <span className="text-gray-400">Cole o link gerado na sua Action para conectar instantaneamente:</span>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault()
+                if (!customTunnelInput.trim()) return
+                setDaemonUrl(customTunnelInput.trim())
+                await execute()
+                alert('Conectado ao túnel!')
+              }}
+              className="flex items-center gap-2 w-full sm:w-auto"
+            >
+              <input
+                type="url"
+                placeholder="https://xxxx.trycloudflare.com"
+                value={customTunnelInput}
+                onChange={(e) => setCustomTunnelInput(e.target.value)}
+                className="input !py-1.5 !px-3 text-xs w-full sm:w-72 font-mono"
+              />
+              <button type="submit" className="btn-primary !py-1.5 !px-4 text-xs font-bold shrink-0">
+                Conectar
               </button>
-            )}
+            </form>
           </div>
-        </div>
+        </>
       )}
 
       {/* Cards de estatísticas */}
