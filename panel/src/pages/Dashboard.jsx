@@ -44,25 +44,7 @@ export default function Dashboard({ ws }) {
     )
   }
 
-  if (error) {
-    return (
-      <div className="card p-8 text-center">
-        <div className="text-4xl mb-3">🔌</div>
-        <p className="text-red-400 font-medium mb-2">{error}</p>
-        <p className="text-gray-500 text-sm mb-1">
-          O painel não consegue falar com o daemon no seu PC.
-        </p>
-        <div className="max-w-md mx-auto text-left bg-gray-950 rounded-xl p-4 text-xs text-gray-400 mb-4 space-y-1.5">
-          <p>• <strong>Erro 502 no Netlify?</strong> Defina a variável <code className="text-green-400">DAEMON_URL</code> no Netlify apontando para seu PC (ex: <code className="text-green-400">http://177.5.139.30:3000</code>)</p>
-          <p>• Abra as portas <code className="text-green-400">3000</code> no roteador (port forwarding) para o IP local do seu PC</p>
-          <p>• Ou configure a URL direta na página de Login → "Configurar URL do daemon"</p>
-          <p>• Verifique se o daemon está rodando: <code className="text-green-400">cd daemon && npm start</code></p>
-        </div>
-        <Link to="/settings" className="btn-secondary">Ir para Configurações</Link>
-      </div>
-    )
-  }
-
+  const isOffline = !!error || !dash
   const servers = Object.values(dash?.servers || {})
   const runningServers = servers.filter(s => s.status === 'running')
 
@@ -82,6 +64,44 @@ export default function Dashboard({ ws }) {
           Criar Servidor
         </Link>
       </div>
+
+      {/* Banner de Controle da Nuvem (GitHub Actions) */}
+      {isOffline && (
+        <div className="bg-gradient-to-r from-emerald-950/80 via-gray-900 to-gray-900 border border-emerald-500/40 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-slide-up">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-bold text-white">Servidor Pronto para Executar na Nuvem</h3>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Pronto para Ligar
+                </span>
+              </div>
+              <p className="text-xs text-gray-300 mt-1 max-w-xl leading-relaxed">
+                Você já está autenticado no painel! Configure seus servidores abaixo e clique para iniciar a máquina na nuvem do GitHub Actions.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full md:w-auto">
+            <a
+              href="https://github.com/moisesvvanti-dev/mcforge/actions"
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary w-full md:w-auto !py-2.5 !px-5 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-green-900/30"
+            >
+              <span>▶️ Ligar Servidor na Nuvem (GitHub)</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      )}
 
       {/* Cards de estatísticas */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

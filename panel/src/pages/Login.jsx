@@ -110,19 +110,33 @@ export default function Login() {
     }
 
     try {
-      const result = await api.login(finalUsername, password)
-      
-      if (result.token) {
-        setToken(result.token)
-        if (result.user) setUser(result.user)
-        if (rememberUser && finalUsername) {
-          localStorage.setItem('mcforge_saved_user', finalUsername)
-        } else {
-          localStorage.removeItem('mcforge_saved_user')
+      try {
+        const result = await api.login(finalUsername, password)
+        if (result.token) {
+          setToken(result.token)
+          if (result.user) setUser(result.user)
+          if (rememberUser && finalUsername) {
+            localStorage.setItem('mcforge_saved_user', finalUsername)
+          } else {
+            localStorage.removeItem('mcforge_saved_user')
+          }
+          navigate('/')
+          return
         }
-        navigate('/')
-      } else {
-        setError('Resposta inválida do servidor.')
+      } catch (apiErr) {
+        // Se estiver no GitHub Pages com o daemon ainda não iniciado, permite entrar no painel para configurar
+        if (connectionStatus === 'offline' || isHosted) {
+          const fallbackToken = 'mcf_offline_' + btoa(finalUsername + ':' + Date.now())
+          const fallbackUser = { id: finalUsername, username: finalUsername, name: finalUsername, role: 'admin' }
+          setToken(fallbackToken)
+          setUser(fallbackUser)
+          if (rememberUser && finalUsername) {
+            localStorage.setItem('mcforge_saved_user', finalUsername)
+          }
+          navigate('/')
+          return
+        }
+        throw apiErr
       }
     } catch (err) {
       setError(err.message || 'Falha ao autenticar. Verifique seus dados.')
@@ -162,19 +176,32 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const result = await api.register(finalUsername, password, name.trim())
-      
-      if (result.token) {
-        setToken(result.token)
-        if (result.user) setUser(result.user)
-        if (rememberUser) {
-          localStorage.setItem('mcforge_saved_user', finalUsername)
+      try {
+        const result = await api.register(finalUsername, password, name.trim())
+        if (result.token) {
+          setToken(result.token)
+          if (result.user) setUser(result.user)
+          if (rememberUser) {
+            localStorage.setItem('mcforge_saved_user', finalUsername)
+          }
+          setIsFirstSetup(false)
+          navigate('/')
+          return
         }
-        setIsFirstSetup(false)
-        navigate('/')
-      } else {
-        setSuccessMsg('Conta criada com sucesso! Você já pode entrar.')
-        setTab('login')
+      } catch (apiErr) {
+        if (connectionStatus === 'offline' || isHosted) {
+          const fallbackToken = 'mcf_offline_' + btoa(finalUsername + ':' + Date.now())
+          const fallbackUser = { id: finalUsername, username: finalUsername, name: name.trim() || finalUsername, role: 'admin' }
+          setToken(fallbackToken)
+          setUser(fallbackUser)
+          if (rememberUser) {
+            localStorage.setItem('mcforge_saved_user', finalUsername)
+          }
+          setIsFirstSetup(false)
+          navigate('/')
+          return
+        }
+        throw apiErr
       }
     } catch (err) {
       setError(err.message || 'Falha ao registrar usuário.')
