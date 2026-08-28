@@ -1,0 +1,36 @@
+# ============================================
+# MCForge Panel - Configuração Netlify
+# Build do painel + função proxy opcional
+# ============================================
+
+[build]
+  command = "npm install && npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Função proxy (opcional): encaminha /api/* para o daemon
+[functions]
+  directory = "netlify/functions"
+
+# Regra de proxy: qualquer chamada para /api/* vai para a função proxy
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/proxy/:splat"
+  status = 200
+
+# SPA fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Headers de segurança
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

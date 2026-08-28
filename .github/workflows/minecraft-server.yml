@@ -1,0 +1,113 @@
+# ============================================
+# MCForge - Servidor Minecraft no GitHub Actions
+# ⚠️ EXPERIMENTAL (apenas para testes)
+# ============================================
+# ⚠️ AVISOS IMPORTANTES ⚠️
+# - Este workflow roda até 6 HORAS, depois o servidor MORRE
+# - O mundo NÃO É SALVO (perdido ao final)
+# - GitHub Actions não foi feito para hospedagem!
+# - Para servidor 24/7 real: use seu PC ou VPS gratuita
+# - Ative apenas manualmente (workflow_dispatch)
+# ============================================
+name: 🎮 Servidor Minecraft (Experimental)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versão do Minecraft (ex: 1.21.4)'
+        required: true
+        default: '1.21.4'
+      ram:
+        description: 'RAM máxima (ex: 3G)'
+        required: true
+        default: '3G'
+      type:
+        description: 'Tipo de servidor (paper, vanilla, purpur)'
+        required: true
+        default: 'paper'
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Baixar servidor (Paper)
+        if: inputs.type == 'paper'
+        run: |
+          mkdir -p server
+          echo "Baixando Paper ${{ inputs.version }}..."
+          VERSIONS=$(curl -s "https://api.papermc.io/v2/projects/paper/versions/${{ inputs.version }}/builds")
+          BUILD=$(echo "$VERSIONS" | jq -r '.builds[-1].build')
+          JAR=$(echo "$VERSIONS" | jq -r '.builds[-1].downloads.application.name')
+          curl -o "server/paper.jar" "https://api.papermc.io/v2/projects/paper/versions/${{ inputs.version }}/builds/$BUILD/downloads/$JAR"
+          echo "Paper baixado: build $BUILD"
+
+      - name: Baixar servidor (Vanilla)
+        if: inputs.type == 'vanilla'
+        run: |
+          mkdir -p server
+          MANIFEST=$(curl -s "https://launchermeta.mojang.com/mc/game/version_manifest_v2.json")
+          URL=$(echo "$MANIFEST" | jq -r '.versions[] | select(.id=="${{ inputs.version }}") | .url')
+          JAR_URL=$(curl -s "$URL" | jq -r '.downloads.server.url')
+          curl -o "server/server.jar" "$JAR_URL"
+
+      - name: Baixar servidor (Purpur)
+        if: inputs.type == 'purpur'
+        run: |
+          mkdir -p server
+          curl -o "server/purpur.jar" "https://api.purpurmc.org/v2/purpur/${{ inputs.version }}/latest/download"
+
+      - name: Aceitar EULA
+        run: echo "eula=true" > server/eula.txt
+
+      - name: Iniciar servidor Minecraft
+        run: |
+          cd server
+          # Encontrar o jar
+          JAR=$(ls *.jar 2>/dev/null | head -1)
+          echo "Iniciando servidor: $JAR"
+          java -Xms1G -Xmx${{ inputs.ram }} -jar "$JAR" nogui > server.log 2>&1 &
+          echo "PID=$!"
+          echo "Aguardando boot..."
+          sleep 15
+          tail -30 server.log
+
+      - name: Iniciar Cloudflare Tunnel (exposição)
+        run: |
+          # Baixar cloudflared
+          curl -sL -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          echo "Iniciando tunnel..."
+          ./cloudflared tunnel --url http://localhost:25565 --no-autoupdate > tunnel.log 2>&1 &
+          sleep 10
+          # Extrair URL do tunnel
+          TUNNEL_URL=$(grep -oP 'https://\S+\.trycloudflare\.com' tunnel.log | head -1)
+          echo "============================================"
+          echo "  🎮 SERVIDOR ONLINE!"
+          echo "  Endereço: $TUNNEL_URL"
+          echo "  Porta: 25565"
+          echo "  Versão: ${{ inputs.version }}"
+          echo "============================================"
+          echo "Jogadores conectam pelo IP da URL acima"
+          echo "O servidor será encerrado em 6h"
+
+      - name: Manter servidor rodando (até timeout)
+        run: |
+          tail -f server/server.log &
+          while true; do
+            sleep 60
+            # Mostrar heartbeat a cada 10min
+            echo "[$(date -u)] Servidor rodando..."
+            # Mostrar tunnel URL novamente
+            grep -oP 'https://\S+\.trycloudflare\.com' tunnel.log | head -1
+          done

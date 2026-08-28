@@ -1,0 +1,34 @@
+# Dependências
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+panel/dist/
+daemon/dist/
+
+# Dados do daemon
+daemon/data/*.json
+
+# Arquivos de ambiente
+.env
+daemon/.env
+
+# Diretórios de servidores
+daemon/servers/
+backups/
+worlds/
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

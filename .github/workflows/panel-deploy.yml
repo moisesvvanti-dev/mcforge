@@ -1,0 +1,62 @@
+# ============================================
+# MCForge - Deploy do Painel para GitHub Pages
+# Executa automaticamente a cada push na main
+# ============================================
+name: Deploy Painel - GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: panel/package-lock.json
+
+      - name: Instalar dependências
+        working-directory: panel
+        run: npm ci || npm install
+
+      - name: Build do painel
+        working-directory: panel
+        env:
+          BASE_PATH: /mcforge
+        run: npm run build
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artefato
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: panel/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
