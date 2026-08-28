@@ -239,22 +239,19 @@ export default function Login() {
         {/* Header com Logo Isométrico Stylized */}
         <div className="text-center mb-8">
           <div className="relative inline-block group">
-            <div className="absolute -inset-1.5 bg-gradient-to-r from-green-500 via-emerald-400 to-cyan-500 rounded-3xl blur-md opacity-75 group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-pulse-slow" />
-            <div className="relative inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gray-900 border border-green-500/30 text-white shadow-2xl overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-green-500/20 to-transparent pointer-events-none" />
-              <svg className="w-11 h-11 text-green-400 drop-shadow-[0_0_12px_rgba(74,222,128,0.6)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-              </svg>
+            <div className="absolute -inset-2 bg-gradient-to-r from-red-600 via-rose-500 to-amber-500 rounded-3xl blur-lg opacity-85 group-hover:opacity-100 transition duration-500 group-hover:duration-200 animate-pulse-slow" />
+            <div className="relative inline-flex items-center justify-center w-24 h-24 rounded-2xl bg-gray-900 border border-red-500/40 shadow-2xl overflow-hidden ring-2 ring-red-500/30">
+              <img src="logo.png" alt="revhost2026 Logo" className="w-full h-full object-cover" />
             </div>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-gray-100 to-gray-300 tracking-tight mt-4">
-            MCForge
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-white via-red-100 to-rose-300 tracking-tight mt-4">
+            revhost2026
           </h1>
           <p className="text-gray-400 text-sm mt-1 flex items-center justify-center gap-2">
-            <span>Hospedagem de Minecraft</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-            <span className="text-gray-500 text-xs font-mono">v1.0</span>
+            <span>Hospedagem Minecraft Cloud</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
+            <span className="text-red-400/80 text-xs font-mono font-bold">2026</span>
           </p>
 
           {/* Status do Servidor em Tempo Real */}

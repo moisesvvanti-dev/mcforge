@@ -63,13 +63,8 @@ export default function Servers({ ws }) {
         ))}
       </div>
 
-      {loading ? (
+      {loading && list.length === 0 ? (
         <div className="flex justify-center py-20"><Spinner size="lg" /></div>
-      ) : error ? (
-        <div className="card p-8 text-center">
-          <p className="text-red-400">{error}</p>
-          <p className="text-sm text-gray-500 mt-2">Verifique se o daemon está rodando.</p>
-        </div>
       ) : filtered.length === 0 ? (
         <div className="card p-12 text-center">
           <div className="text-5xl mb-3">🗺️</div>

@@ -24,13 +24,11 @@ export default function Layout({ children, ws }) {
     <div className="min-h-screen bg-gray-950 flex">
       {/* Sidebar */}
       <aside className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-gray-900/90 border-r border-gray-800 transform transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <div className="flex items-center gap-3 px-5 py-5 border-b border-gray-800">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center font-black text-gray-950">
-            MC
-          </div>
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-800">
+          <img src="logo.png" alt="revhost2026 Logo" className="w-10 h-10 rounded-xl object-cover ring-2 ring-red-500/40 shadow-lg shadow-red-500/20" />
           <div>
-            <div className="font-bold text-white leading-tight">MCForge</div>
-            <div className="text-[10px] text-gray-500 uppercase tracking-widest">Hospedagem</div>
+            <div className="font-extrabold text-white text-base tracking-tight bg-gradient-to-r from-red-400 via-rose-300 to-white bg-clip-text text-transparent">revhost2026</div>
+            <div className="text-[10px] text-red-400/80 font-semibold uppercase tracking-widest">Hospedagem Cloud</div>
           </div>
         </div>
 
@@ -59,7 +57,7 @@ export default function Layout({ children, ws }) {
 
         <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
           <div className="text-[11px] text-gray-600">
-            MCForge v1.0 • Gratuito
+            revhost2026 • Cloud 24/7
             <br />
             Node {ws && ws.connected ? '● conectado' : '○ desconectado'}
           </div>
