@@ -158,19 +158,25 @@ jobs:
           PLAYIT_ADDR=$(grep -oP '[a-zA-Z0-9-]+\.(gl\.joinmc\.link|craft\.playit\.gg:\d+|playit\.gg)' logs/playit.log | head -1)
           PLAYIT_CLAIM=$(grep -oP 'https://playit\.gg/claim/[a-zA-Z0-9]+' logs/playit.log | head -1)
           
-          MINECRAFT_IP="${PLAYIT_ADDR:-$PLAYIT_CLAIM}"
-          if [ -z "$MINECRAFT_IP" ]; then
-            MINECRAFT_IP="playit.gg"
+          # Obter IP original da máquina alocada do GitHub
+          RUNNER_IP=$(curl -s --max-time 5 https://api.ipify.org || curl -s --max-time 5 https://icanhazip.com || curl -s --max-time 5 https://ifconfig.me || echo "")
+          
+          MINECRAFT_IP="${PLAYIT_ADDR:-$RUNNER_IP:25565}"
+          if [ -z "$MINECRAFT_IP" ] || [ "$MINECRAFT_IP" = ":25565" ]; then
+            MINECRAFT_IP="${PLAYIT_CLAIM:-playit.gg}"
           fi
 
           echo "PANEL_URL=$PANEL_URL" >> $GITHUB_ENV
           echo "MINECRAFT_IP=$MINECRAFT_IP" >> $GITHUB_ENV
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
 
           # Salva tunnel.json para o GitHub Pages e Painel conectarem
           cat <<EOF > tunnel.json
 {
   "url": "$PANEL_URL",
   "minecraft": "$MINECRAFT_IP",
+  "runner_ip": "$RUNNER_IP",
+  "direct_ip": "$RUNNER_IP:25565",
   "online": true,
   "updatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -186,13 +192,13 @@ EOF
           # Exibir no Step Summary do GitHub Actions
           echo "## 🎮 MCForge na Nuvem GitHub Está Online!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "> ☁️ **Servidor Rodando nos Servidores do GitHub (Azure Cloud)**" >> $GITHUB_STEP_SUMMARY
+          echo "> ☁️ **Servidor Rodando na Máquina do GitHub (Azure Cloud)**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 🌐 1. Link do Painel Web (Gerenciamento):" >> $GITHUB_STEP_SUMMARY
           echo "[👉 Clique Aqui para Abrir o Painel Web: **$PANEL_URL**]($PANEL_URL)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 🕹️ 2. Endereço para Colar no Minecraft (Jogadores):" >> $GITHUB_STEP_SUMMARY
-          echo "\`$MINECRAFT_IP\`" >> $GITHUB_STEP_SUMMARY
+          echo "### 🕹️ 2. IP Original da Máquina do GitHub (Minecraft):" >> $GITHUB_STEP_SUMMARY
+          echo "\`$RUNNER_IP:25565\` ou \`$MINECRAFT_IP\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ -n "$PLAYIT_CLAIM" ]; then
             echo "> ⚠️ **Primeira vez usando Playit?** Clique no link para vincular sua conta gratuita e fixar seu IP: [$PLAYIT_CLAIM]($PLAYIT_CLAIM)" >> $GITHUB_STEP_SUMMARY

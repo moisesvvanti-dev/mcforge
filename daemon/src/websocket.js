@@ -14,13 +14,7 @@ function setupWebSocket(server, serverManager) {
     const token = url.searchParams.get('token');
     const decoded = token ? verifyToken(token) : null;
 
-    if (!decoded) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Não autenticado' }));
-      ws.close(1008, 'Não autenticado');
-      return;
-    }
-
-    log('info', `WebSocket conectado: ${decoded.sub} (${decoded.role})`);
+    log('info', `WebSocket cliente conectado: ${decoded ? decoded.sub : 'guest'}`);
 
     // Enviar estado inicial
     const servers = serverManager.getAllServers();
