@@ -24,6 +24,17 @@ export default function Servers({ ws }) {
     }
   }
 
+  const handleDelete = async (id) => {
+    if (!window.confirm('Tem certeza que deseja deletar este servidor?')) return
+    try {
+      await api.deleteServer(id)
+    } catch { }
+    const existing = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
+    delete existing[id]
+    localStorage.setItem('mcforge_local_servers', JSON.stringify(existing))
+    refresh()
+  }
+
   const list = Object.values(servers || {})
   const filtered = list.filter(s =>
     filter === 'all' ? true : filter === 'running' ? s.status === 'running' : s.status === 'stopped'
@@ -86,6 +97,7 @@ export default function Servers({ ws }) {
               onStart={(id) => handleAction(id, 'start')}
               onStop={(id) => handleAction(id, 'stop')}
               onRestart={(id) => handleAction(id, 'restart')}
+              onDelete={(id) => handleDelete(id)}
             />
           ))}
         </div>

@@ -65,7 +65,6 @@ export default function NewServer() {
           return
         }
       } catch (apiErr) {
-        // Salva a configuração localmente para iniciar no GitHub Actions
         const localId = 'srv_' + Date.now()
         const newServer = {
           ...form,
@@ -78,8 +77,7 @@ export default function NewServer() {
         const existing = JSON.parse(localStorage.getItem('mcforge_local_servers') || '{}')
         existing[localId] = newServer
         localStorage.setItem('mcforge_local_servers', JSON.stringify(existing))
-        setCreatedServerId(localId)
-        setShowCloudModal(true)
+        navigate(`/servers/${localId}`)
         return
       }
     } catch (e) {
@@ -407,47 +405,6 @@ export default function NewServer() {
           </div>
         </div>
       )}
-
-      {/* Modal de Inicialização na Nuvem (GitHub Actions) */}
-      <Modal open={showCloudModal} onClose={() => navigate('/servers')} title="🚀 Servidor Criado com Sucesso!">
-        <div className="space-y-4">
-          <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400 text-sm flex items-start gap-3">
-            <svg className="w-5 h-5 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
-            <div>
-              <p className="font-bold text-white">Configuração salva no painel!</p>
-              <p className="text-xs text-gray-300 mt-1">
-                O seu servidor <strong>{form.name}</strong> ({serverTypes.find(t => t.id === form.type)?.name} {form.version} • {form.maxRam} RAM) está pronto.
-              </p>
-            </div>
-          </div>
-
-          <p className="text-xs text-gray-400 leading-relaxed">
-            Agora, para ligar a máquina na nuvem e colocar seu servidor Minecraft online, clique no botão abaixo:
-          </p>
-
-          <div className="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
-            <button onClick={() => navigate('/servers')} className="btn-secondary w-full sm:w-auto text-xs">
-              Ver no Painel
-            </button>
-            <a
-              href="https://github.com/moisesvvanti-dev/mcforge/actions"
-              target="_blank"
-              rel="noreferrer"
-              onClick={() => {
-                setTimeout(() => navigate('/servers'), 1000)
-              }}
-              className="btn-primary w-full sm:w-auto text-xs font-bold flex items-center justify-center gap-1.5"
-            >
-              <span>▶️ Ligar Servidor no GitHub Actions</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
-            </a>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }
